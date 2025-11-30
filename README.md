@@ -98,8 +98,18 @@ v∆v
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/3d-preview.png" alt="3D Preview" width="800">
-  <br><em>Interactive 3D model preview</em>
+  <img src="docs/screenshots/queue.png" alt="Queue" width="800">
+  <br><em>Queueing and scheduling</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/cloud_profiles.png" alt="Cloud Profiles" width="800">
+  <br><em>Cloud Profiles</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/settings.png" alt="Settings" width="800">
+  <br><em>Settings</em>
 </p>
 
 ## Requirements
