@@ -800,7 +800,10 @@ To fix the printer's clock:
 - [x] K-Profiles management (pressure advance)
 - [x] Push notifications (WhatsApp, ntfy, Pushover, Telegram, Email)
 - [ ] Maintenance tracker
+- [ ] Full printer control
+- [ ] Spoolman support
 - [ ] Mobile-optimized UI
+- [ ] docs: readme -> wiki
 
 ## License
 
