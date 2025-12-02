@@ -1,4 +1,5 @@
-v∆v
+TESTERS NEEDED!!!
+Since I only have X1C and H2D devices, I'm not able to test the application with other Bambu Lab models. Collaborate today and help the project to support the whole Bambu Lab printer family!
 
 <p align="center">
   <img src="static/img/bambusy_logo_dark.png" alt="Bambusy Logo" width="300">
