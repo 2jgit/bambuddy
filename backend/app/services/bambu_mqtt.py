@@ -100,6 +100,86 @@ class PrinterState:
     nozzles: list = field(default_factory=lambda: [NozzleInfo(), NozzleInfo()])
     # AI detection and print options
     print_options: PrintOptions = field(default_factory=PrintOptions)
+    # Calibration stage tracking (from stg_cur and stg fields)
+    stg_cur: int = -1  # Current stage index (-1 = not calibrating)
+    stg: list = field(default_factory=list)  # List of stages to execute
+
+
+# Stage name mapping from BambuStudio DeviceManager.cpp
+STAGE_NAMES = {
+    0: "Printing",
+    1: "Auto bed leveling",
+    2: "Heatbed preheating",
+    3: "Vibration compensation",
+    4: "Changing filament",
+    5: "M400 pause",
+    6: "Paused (filament ran out)",
+    7: "Heating nozzle",
+    8: "Calibrating dynamic flow",
+    9: "Scanning bed surface",
+    10: "Inspecting first layer",
+    11: "Identifying build plate type",
+    12: "Calibrating Micro Lidar",
+    13: "Homing toolhead",
+    14: "Cleaning nozzle tip",
+    15: "Checking extruder temperature",
+    16: "Paused by the user",
+    17: "Pause (front cover fall off)",
+    18: "Calibrating the micro lidar",
+    19: "Calibrating flow ratio",
+    20: "Pause (nozzle temperature malfunction)",
+    21: "Pause (heatbed temperature malfunction)",
+    22: "Filament unloading",
+    23: "Pause (step loss)",
+    24: "Filament loading",
+    25: "Motor noise cancellation",
+    26: "Pause (AMS offline)",
+    27: "Pause (low speed of the heatbreak fan)",
+    28: "Pause (chamber temperature control problem)",
+    29: "Cooling chamber",
+    30: "Pause (Gcode inserted by user)",
+    31: "Motor noise showoff",
+    32: "Pause (nozzle clumping)",
+    33: "Pause (cutter error)",
+    34: "Pause (first layer error)",
+    35: "Pause (nozzle clog)",
+    36: "Measuring motion precision",
+    37: "Enhancing motion precision",
+    38: "Measure motion accuracy",
+    39: "Nozzle offset calibration",
+    40: "High temperature auto bed leveling",
+    41: "Auto Check: Quick Release Lever",
+    42: "Auto Check: Door and Upper Cover",
+    43: "Laser Calibration",
+    44: "Auto Check: Platform",
+    45: "Confirming BirdsEye Camera location",
+    46: "Calibrating BirdsEye Camera",
+    47: "Auto bed leveling - phase 1",
+    48: "Auto bed leveling - phase 2",
+    49: "Heating chamber",
+    50: "Cooling heatbed",
+    51: "Printing calibration lines",
+    52: "Auto Check: Material",
+    53: "Live View Camera Calibration",
+    54: "Waiting for heatbed temperature",
+    55: "Auto Check: Material Position",
+    56: "Cutting Module Offset Calibration",
+    57: "Measuring Surface",
+    58: "Thermal Preconditioning",
+    59: "Homing Blade Holder",
+    60: "Calibrating Camera Offset",
+    61: "Calibrating Blade Holder Position",
+    62: "Hotend Pick and Place Test",
+    63: "Waiting for Chamber temperature",
+    64: "Preparing Hotend",
+    65: "Calibrating nozzle clumping detection",
+    66: "Purifying the chamber air",
+}
+
+
+def get_stage_name(stage: int) -> str:
+    """Get human-readable stage name from stage number."""
+    return STAGE_NAMES.get(stage, f"Unknown stage ({stage})")
 
 
 class BambuMQTTClient:
@@ -533,12 +613,27 @@ class BambuMQTTClient:
         if "total_layer_num" in data:
             self.state.total_layers = int(data["total_layer_num"])
 
+        # Calibration stage tracking
+        if "stg_cur" in data:
+            new_stg = data["stg_cur"]
+            if new_stg != self.state.stg_cur:
+                logger.info(
+                    f"[{self.serial_number}] Calibration stage changed: "
+                    f"{self.state.stg_cur} -> {new_stg} ({get_stage_name(new_stg)})"
+                )
+            self.state.stg_cur = new_stg
+        if "stg" in data:
+            self.state.stg = data["stg"] if isinstance(data["stg"], list) else []
+
         # Temperature data
         temps = {}
-        # Log all temperature-related fields for debugging (only when we have temp data)
-        temp_fields = {k: v for k, v in data.items() if 'temp' in k.lower() or 'nozzle' in k.lower()}
-        if temp_fields and not hasattr(self, '_temp_fields_logged'):
-            logger.info(f"[{self.serial_number}] Temperature fields in MQTT data: {temp_fields}")
+        # Log all fields for debugging dual-nozzle temperature discovery (only once)
+        if "bed_temper" in data and not hasattr(self, '_temp_fields_logged'):
+            temp_fields = {k: v for k, v in data.items() if 'temp' in k.lower() or 'chamber' in k.lower()}
+            logger.info(f"[{self.serial_number}] Temperature-related fields: {temp_fields}")
+            # Log ALL keys in print data for H2D temperature discovery
+            all_keys = sorted(data.keys())
+            logger.info(f"[{self.serial_number}] ALL print data keys ({len(all_keys)}): {all_keys}")
             self._temp_fields_logged = True
 
         # Log nozzle hardware info fields (once)
@@ -571,8 +666,57 @@ class BambuMQTTClient:
             temps["nozzle_target"] = float(data["left_nozzle_target_temper"])
         if "chamber_temper" in data:
             temps["chamber"] = float(data["chamber_temper"])
+        # H2D series: Chamber temp is in info.temp (directly in °C)
+        try:
+            if "info" in data and isinstance(data["info"], dict):
+                info_temp = data["info"].get("temp")
+                if info_temp is not None and "chamber" not in temps:
+                    temps["chamber"] = float(info_temp)
+            # H2D series: Dual extruder temps are in device.extruder.info array
+            # Temperature values are encoded as fixed-point (value / 65536 = °C)
+            if "device" in data and isinstance(data["device"], dict):
+                device = data["device"]
+                # Parse dual extruder temperatures
+                extruder_data = device.get("extruder", {})
+                extruder_info = extruder_data.get("info", [])
+                if isinstance(extruder_info, list) and len(extruder_info) >= 1:
+                    # Log extruder info structure for debugging (once)
+                    if not getattr(self, '_extruder_info_logged', False):
+                        logger.debug(f"[{self.serial_number}] H2D extruder info[0]: {extruder_info[0]}")
+                        if len(extruder_info) >= 2:
+                            logger.debug(f"[{self.serial_number}] H2D extruder info[1]: {extruder_info[1]}")
+                        self._extruder_info_logged = True
+                    # Left nozzle (extruder 0) - temp is already in Celsius
+                    if "nozzle" not in temps and "temp" in extruder_info[0]:
+                        temp_val = extruder_info[0]["temp"]
+                        if -50 < temp_val < 500:  # Valid temp range
+                            temps["nozzle"] = float(temp_val)
+                    # Left nozzle target temp - star field, but 65535/65279 means "not set"
+                    if "nozzle_target" not in temps:
+                        star = extruder_info[0].get("star")
+                        if star is not None and 0 <= star < 500:  # Valid temp range
+                            temps["nozzle_target"] = float(star)
+                    # Right nozzle (extruder 1) - only for dual nozzle printers
+                    if len(extruder_info) >= 2 and "temp" in extruder_info[1]:
+                        temp_val = extruder_info[1]["temp"]
+                        if -50 < temp_val < 500:  # Valid temp range
+                            temps["nozzle_2"] = float(temp_val)
+                    # Right nozzle target temp - star field, but 65535/65279 means "not set"
+                    if len(extruder_info) >= 2:
+                        star = extruder_info[1].get("star")
+                        if star is not None and 0 <= star < 500:  # Valid temp range
+                            temps["nozzle_2_target"] = float(star)
+                # Parse chamber temp from device.ctc.info.temp if not already set
+                ctc_data = device.get("ctc", {})
+                ctc_info = ctc_data.get("info", {})
+                if "temp" in ctc_info and "chamber" not in temps:
+                    temps["chamber"] = float(ctc_info["temp"])
+        except Exception as e:
+            logger.warning(f"[{self.serial_number}] Error parsing H2D temperatures: {e}")
         if temps:
-            self.state.temperatures = temps
+            # Merge new temps into existing, preserving valid values when new ones are filtered out
+            for key, value in temps.items():
+                self.state.temperatures[key] = value
 
         # Parse HMS (Health Management System) errors
         if "hms" in data:
@@ -654,6 +798,20 @@ class BambuMQTTClient:
             self.state.nozzles[1].nozzle_type = str(data["nozzle_type_2"])
         if "nozzle_diameter_2" in data:
             self.state.nozzles[1].nozzle_diameter = str(data["nozzle_diameter_2"])
+
+        # H2D series: Nozzle hardware info is in device.nozzle.info array
+        if "device" in data and isinstance(data["device"], dict):
+            device = data["device"]
+            nozzle_data = device.get("nozzle", {})
+            nozzle_info = nozzle_data.get("info", [])
+            if isinstance(nozzle_info, list):
+                for nozzle in nozzle_info:
+                    idx = nozzle.get("id", 0)
+                    if idx < len(self.state.nozzles):
+                        if "type" in nozzle and nozzle["type"]:
+                            self.state.nozzles[idx].nozzle_type = str(nozzle["type"])
+                        if "diameter" in nozzle:
+                            self.state.nozzles[idx].nozzle_diameter = str(nozzle["diameter"])
 
         # Preserve AMS and vt_tray data when updating raw_data
         ams_data = self.state.raw_data.get("ams")
@@ -1026,6 +1184,74 @@ class BambuMQTTClient:
         # Update local state immediately
         if option_name == "auto_recovery":
             self.state.print_options.auto_recovery_step_loss = enabled
+
+        return True
+
+    def start_calibration(
+        self,
+        bed_leveling: bool = False,
+        vibration: bool = False,
+        motor_noise: bool = False,
+        nozzle_offset: bool = False,
+        high_temp_heatbed: bool = False,
+    ) -> bool:
+        """Start printer calibration with selected options.
+
+        Args:
+            bed_leveling: Run bed leveling calibration
+            vibration: Run vibration compensation calibration
+            motor_noise: Run motor noise cancellation calibration
+            nozzle_offset: Run nozzle offset calibration (dual nozzle printers)
+            high_temp_heatbed: Run high-temperature heatbed calibration
+
+        Returns:
+            True if command was sent, False if not connected
+        """
+        if not self._client or not self.state.connected:
+            return False
+
+        # Build calibration bitmask based on OrcaSlicer DeviceManager.cpp
+        # Bit 0: xcam_cali (not exposed in UI)
+        # Bit 1: bed_leveling
+        # Bit 2: vibration
+        # Bit 3: motor_noise
+        # Bit 4: nozzle_cali
+        # Bit 5: bed_cali (high-temp heatbed)
+        # Bit 6: clumppos_cali (not exposed in UI)
+        option = 0
+        if bed_leveling:
+            option |= 1 << 1
+        if vibration:
+            option |= 1 << 2
+        if motor_noise:
+            option |= 1 << 3
+        if nozzle_offset:
+            option |= 1 << 4
+        if high_temp_heatbed:
+            option |= 1 << 5
+
+        if option == 0:
+            logger.warning(f"[{self.serial_number}] No calibration options selected")
+            return False
+
+        self._sequence_id += 1
+
+        command = {
+            "print": {
+                "command": "calibration",
+                "sequence_id": str(self._sequence_id),
+                "option": option,
+            }
+        }
+
+        command_json = json.dumps(command)
+        self._client.publish(self.topic_publish, command_json, qos=1)
+        logger.info(
+            f"[{self.serial_number}] Starting calibration: "
+            f"bed_leveling={bed_leveling}, vibration={vibration}, "
+            f"motor_noise={motor_noise}, nozzle_offset={nozzle_offset}, "
+            f"high_temp_heatbed={high_temp_heatbed} (option={option})"
+        )
 
         return True
 

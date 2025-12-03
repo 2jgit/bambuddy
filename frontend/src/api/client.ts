@@ -111,6 +111,10 @@ export interface PrinterStatus {
   ipcam: boolean;  // Live view enabled
   nozzles: NozzleInfo[];  // Nozzle hardware info (index 0=left/primary, 1=right)
   print_options: PrintOptions | null;  // AI detection and print options
+  // Calibration stage tracking
+  stg_cur: number;  // Current stage number (-1 = not calibrating)
+  stg_cur_name: string | null;  // Human-readable current stage name
+  stg: number[];  // List of stage numbers in calibration sequence
 }
 
 export interface PrinterCreate {
@@ -1232,6 +1236,35 @@ export const api = {
       print_halt: boolean;
       sensitivity: string;
     }>(`/printers/${printerId}/print-options?${params}`, {
+      method: 'POST',
+    });
+  },
+
+  // Calibration
+  startCalibration: (
+    printerId: number,
+    options: {
+      bed_leveling?: boolean;
+      vibration?: boolean;
+      motor_noise?: boolean;
+      nozzle_offset?: boolean;
+      high_temp_heatbed?: boolean;
+    }
+  ) => {
+    const params = new URLSearchParams();
+    if (options.bed_leveling) params.append('bed_leveling', 'true');
+    if (options.vibration) params.append('vibration', 'true');
+    if (options.motor_noise) params.append('motor_noise', 'true');
+    if (options.nozzle_offset) params.append('nozzle_offset', 'true');
+    if (options.high_temp_heatbed) params.append('high_temp_heatbed', 'true');
+    return request<{
+      success: boolean;
+      bed_leveling: boolean;
+      vibration: boolean;
+      motor_noise: boolean;
+      nozzle_offset: boolean;
+      high_temp_heatbed: boolean;
+    }>(`/printers/${printerId}/calibration?${params}`, {
       method: 'POST',
     });
   },

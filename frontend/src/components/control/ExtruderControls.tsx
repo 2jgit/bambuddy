@@ -9,10 +9,11 @@ interface ExtruderControlsProps {
   printerId: number;
   status: PrinterStatus | null | undefined;
   nozzleCount: number;
+  disabled?: boolean;
 }
 
-export function ExtruderControls({ printerId, status, nozzleCount }: ExtruderControlsProps) {
-  const isConnected = status?.connected ?? false;
+export function ExtruderControls({ printerId, status, nozzleCount, disabled = false }: ExtruderControlsProps) {
+  const isConnected = (status?.connected ?? false) && !disabled;
   const isPrinting = status?.state === 'RUNNING' || status?.state === 'PAUSE';
   const isDualNozzle = nozzleCount > 1;
 
@@ -60,23 +61,25 @@ export function ExtruderControls({ printerId, status, nozzleCount }: ExtruderCon
       <div className="flex flex-col items-center gap-1.5 justify-center">
         {/* Left/Right Toggle - only for dual nozzle */}
         {isDualNozzle && (
-          <div className="flex rounded-md overflow-hidden border border-bambu-dark-tertiary mb-1 flex-shrink-0">
+          <div className={`flex rounded-md overflow-hidden border border-bambu-dark-tertiary mb-1 flex-shrink-0 ${isDisabled ? 'opacity-50' : ''}`}>
             <button
               onClick={() => setSelectedNozzle('left')}
-              className={`px-3 py-1.5 text-sm border-r border-bambu-dark-tertiary transition-colors ${
+              disabled={isDisabled}
+              className={`px-3 py-1.5 text-sm border-r border-bambu-dark-tertiary transition-colors disabled:cursor-not-allowed ${
                 selectedNozzle === 'left'
                   ? 'bg-bambu-green text-white'
-                  : 'bg-bambu-dark-secondary text-bambu-gray hover:bg-bambu-dark-tertiary'
+                  : 'bg-bambu-dark-secondary text-bambu-gray hover:bg-bambu-dark-tertiary disabled:hover:bg-bambu-dark-secondary'
               }`}
             >
               Left
             </button>
             <button
               onClick={() => setSelectedNozzle('right')}
-              className={`px-3 py-1.5 text-sm transition-colors ${
+              disabled={isDisabled}
+              className={`px-3 py-1.5 text-sm transition-colors disabled:cursor-not-allowed ${
                 selectedNozzle === 'right'
                   ? 'bg-bambu-green text-white'
-                  : 'bg-bambu-dark-secondary text-bambu-gray hover:bg-bambu-dark-tertiary'
+                  : 'bg-bambu-dark-secondary text-bambu-gray hover:bg-bambu-dark-tertiary disabled:hover:bg-bambu-dark-secondary'
               }`}
             >
               Right

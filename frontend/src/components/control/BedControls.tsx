@@ -7,10 +7,11 @@ import { ConfirmModal } from '../ConfirmModal';
 interface BedControlsProps {
   printerId: number;
   status: PrinterStatus | null | undefined;
+  disabled?: boolean;
 }
 
-export function BedControls({ printerId, status }: BedControlsProps) {
-  const isConnected = status?.connected ?? false;
+export function BedControls({ printerId, status, disabled = false }: BedControlsProps) {
+  const isConnected = (status?.connected ?? false) && !disabled;
 
   const [confirmModal, setConfirmModal] = useState<{
     token: string;

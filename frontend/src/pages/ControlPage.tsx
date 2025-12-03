@@ -13,6 +13,7 @@ import { AMSSectionDual } from '../components/control/AMSSectionDual';
 import { CameraSettingsModal } from '../components/control/CameraSettingsModal';
 import { PrinterPartsModal } from '../components/control/PrinterPartsModal';
 import { PrintOptionsModal } from '../components/control/PrintOptionsModal';
+import { CalibrationModal } from '../components/control/CalibrationModal';
 import { Loader2, WifiOff, Video, Webcam, Settings } from 'lucide-react';
 
 export function ControlPage() {
@@ -21,6 +22,7 @@ export function ControlPage() {
   const [showCameraSettings, setShowCameraSettings] = useState(false);
   const [showPrinterParts, setShowPrinterParts] = useState(false);
   const [showPrintOptions, setShowPrintOptions] = useState(false);
+  const [showCalibration, setShowCalibration] = useState(false);
 
   // Fetch all printers
   const { data: printers, isLoading: loadingPrinters } = useQuery({
@@ -73,6 +75,12 @@ export function ControlPage() {
 
   const selectedPrinter = printers?.find((p) => p.id === selectedPrinterId);
   const selectedStatus = selectedPrinterId ? statuses?.[selectedPrinterId] : null;
+
+  // Calibration stages that indicate active calibration
+  const CALIBRATION_STAGES = new Set([1, 3, 13, 25, 39, 40, 47, 48, 50]);
+  const isCalibrating = selectedStatus
+    ? CALIBRATION_STAGES.has(selectedStatus.stg_cur)
+    : false;
 
   if (loadingPrinters) {
     return (
@@ -186,7 +194,10 @@ export function ControlPage() {
                 >
                   Print Options
                 </button>
-                <button className="px-4 py-1.5 text-xs rounded bg-bambu-green text-white hover:bg-bambu-green-dark">
+                <button
+                  onClick={() => setShowCalibration(true)}
+                  className="px-4 py-1.5 text-xs rounded bg-bambu-green text-white hover:bg-bambu-green-dark"
+                >
                   Calibration
                 </button>
               </div>
@@ -212,6 +223,7 @@ export function ControlPage() {
                   printerId={selectedPrinter.id}
                   status={selectedStatus}
                   nozzleCount={selectedPrinter.nozzle_count}
+                  disabled={isCalibrating}
                 />
 
                 {/* Movement Column */}
@@ -221,10 +233,12 @@ export function ControlPage() {
                     <JogPad
                       printerId={selectedPrinter.id}
                       status={selectedStatus}
+                      disabled={isCalibrating}
                     />
                     <BedControls
                       printerId={selectedPrinter.id}
                       status={selectedStatus}
+                      disabled={isCalibrating}
                     />
                   </div>
 
@@ -233,6 +247,7 @@ export function ControlPage() {
                     printerId={selectedPrinter.id}
                     status={selectedStatus}
                     nozzleCount={selectedPrinter.nozzle_count}
+                    disabled={isCalibrating}
                   />
                 </div>
                 </div>
@@ -273,6 +288,15 @@ export function ControlPage() {
           printer={selectedPrinter}
           status={selectedStatus}
           onClose={() => setShowPrintOptions(false)}
+        />
+      )}
+
+      {/* Calibration Modal */}
+      {showCalibration && selectedPrinter && (
+        <CalibrationModal
+          printer={selectedPrinter}
+          status={selectedStatus}
+          onClose={() => setShowCalibration(false)}
         />
       )}
     </div>

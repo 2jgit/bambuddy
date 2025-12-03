@@ -25,6 +25,7 @@ from backend.app.schemas.printer import (
     PrintOptionsResponse,
 )
 from backend.app.services.printer_manager import printer_manager
+from backend.app.services.bambu_mqtt import get_stage_name
 from backend.app.services.bambu_ftp import (
     download_file_try_paths_async,
     list_files_async,
@@ -237,6 +238,9 @@ async def get_printer_status(printer_id: int, db: AsyncSession = Depends(get_db)
         ipcam=state.ipcam,
         nozzles=nozzles,
         print_options=print_options,
+        stg_cur=state.stg_cur,
+        stg_cur_name=get_stage_name(state.stg_cur) if state.stg_cur >= 0 else None,
+        stg=state.stg,
     )
 
 
@@ -633,4 +637,63 @@ async def set_print_option(
         "enabled": enabled,
         "print_halt": print_halt,
         "sensitivity": sensitivity,
+    }
+
+
+# ============================================
+# Calibration
+# ============================================
+
+@router.post("/{printer_id}/calibration")
+async def start_calibration(
+    printer_id: int,
+    bed_leveling: bool = False,
+    vibration: bool = False,
+    motor_noise: bool = False,
+    nozzle_offset: bool = False,
+    high_temp_heatbed: bool = False,
+    db: AsyncSession = Depends(get_db),
+):
+    """Start printer calibration with selected options.
+
+    At least one option must be selected.
+
+    Options:
+    - bed_leveling: Run bed leveling calibration
+    - vibration: Run vibration compensation calibration
+    - motor_noise: Run motor noise cancellation calibration
+    - nozzle_offset: Run nozzle offset calibration (dual nozzle printers)
+    - high_temp_heatbed: Run high-temperature heatbed calibration
+    """
+    result = await db.execute(select(Printer).where(Printer.id == printer_id))
+    printer = result.scalar_one_or_none()
+    if not printer:
+        raise HTTPException(404, "Printer not found")
+
+    client = printer_manager.get_client(printer_id)
+    if not client or not client.state.connected:
+        raise HTTPException(400, "Printer not connected")
+
+    # Check that at least one option is selected
+    if not any([bed_leveling, vibration, motor_noise, nozzle_offset, high_temp_heatbed]):
+        raise HTTPException(400, "At least one calibration option must be selected")
+
+    success = client.start_calibration(
+        bed_leveling=bed_leveling,
+        vibration=vibration,
+        motor_noise=motor_noise,
+        nozzle_offset=nozzle_offset,
+        high_temp_heatbed=high_temp_heatbed,
+    )
+
+    if not success:
+        raise HTTPException(500, "Failed to send calibration command to printer")
+
+    return {
+        "success": True,
+        "bed_leveling": bed_leveling,
+        "vibration": vibration,
+        "motor_noise": motor_noise,
+        "nozzle_offset": nozzle_offset,
+        "high_temp_heatbed": high_temp_heatbed,
     }

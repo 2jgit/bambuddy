@@ -7,10 +7,11 @@ import { ConfirmModal } from '../ConfirmModal';
 interface JogPadProps {
   printerId: number;
   status: PrinterStatus | null | undefined;
+  disabled?: boolean;
 }
 
-export function JogPad({ printerId, status }: JogPadProps) {
-  const isConnected = status?.connected ?? false;
+export function JogPad({ printerId, status, disabled = false }: JogPadProps) {
+  const isConnected = (status?.connected ?? false) && !disabled;
 
   const [confirmModal, setConfirmModal] = useState<{
     action: string;

@@ -17,14 +17,15 @@ interface TemperatureColumnProps {
   printerId: number;
   status: PrinterStatus | null | undefined;
   nozzleCount: number;
+  disabled?: boolean;
 }
 
 type EditingField = 'nozzle' | 'nozzle_2' | 'bed' | null;
 
-export function TemperatureColumn({ printerId, status, nozzleCount }: TemperatureColumnProps) {
+export function TemperatureColumn({ printerId, status, nozzleCount, disabled = false }: TemperatureColumnProps) {
   const temps = (status?.temperatures ?? {}) as Temperatures;
   const isDualNozzle = nozzleCount > 1;
-  const isConnected = status?.connected ?? false;
+  const isConnected = (status?.connected ?? false) && !disabled;
 
   const [editing, setEditing] = useState<EditingField>(null);
   const [editValue, setEditValue] = useState('');

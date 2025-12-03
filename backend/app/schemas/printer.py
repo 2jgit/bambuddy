@@ -108,3 +108,7 @@ class PrinterStatus(BaseModel):
     ipcam: bool = False  # Live view enabled
     nozzles: list[NozzleInfoResponse] = []  # Nozzle hardware info (index 0=left/primary, 1=right)
     print_options: PrintOptionsResponse | None = None  # AI detection and print options
+    # Calibration stage tracking
+    stg_cur: int = -1  # Current stage number (-1 = not calibrating)
+    stg_cur_name: str | None = None  # Human-readable current stage name
+    stg: list[int] = []  # List of stage numbers in calibration sequence
