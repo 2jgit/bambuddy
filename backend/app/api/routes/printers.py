@@ -13,6 +13,7 @@ from sqlalchemy import select
 from backend.app.core.database import get_db
 from backend.app.core.config import settings
 from backend.app.models.printer import Printer
+from backend.app.models.slot_preset import SlotPresetMapping
 from backend.app.schemas.printer import (
     PrinterCreate,
     PrinterUpdate,
@@ -156,21 +157,54 @@ async def get_printer_status(printer_id: int, db: AsyncSession = Depends(get_db)
     ams_exists = False
     raw_data = state.raw_data or {}
 
-    if "ams" in raw_data:
+    if "ams" in raw_data and isinstance(raw_data["ams"], list):
         ams_exists = True
         for ams_data in raw_data["ams"]:
+            # Skip if ams_data is not a dict (defensive check)
+            if not isinstance(ams_data, dict):
+                continue
             trays = []
             for tray_data in ams_data.get("tray", []):
+                # Filter out empty/invalid tag values
+                tag_uid = tray_data.get("tag_uid", "")
+                if tag_uid in ("", "0000000000000000"):
+                    tag_uid = None
+                tray_uuid = tray_data.get("tray_uuid", "")
+                if tray_uuid in ("", "00000000000000000000000000000000"):
+                    tray_uuid = None
                 trays.append(AMSTray(
                     id=tray_data.get("id", 0),
                     tray_color=tray_data.get("tray_color"),
                     tray_type=tray_data.get("tray_type"),
+                    tray_sub_brands=tray_data.get("tray_sub_brands"),
+                    tray_id_name=tray_data.get("tray_id_name"),
+                    tray_info_idx=tray_data.get("tray_info_idx"),
                     remain=tray_data.get("remain", 0),
                     k=tray_data.get("k"),
+                    tag_uid=tag_uid,
+                    tray_uuid=tray_uuid,
+                    nozzle_temp_min=tray_data.get("nozzle_temp_min"),
+                    nozzle_temp_max=tray_data.get("nozzle_temp_max"),
                 ))
+            # Prefer humidity_raw (percentage) over humidity (index 1-5)
+            # humidity_raw is the actual percentage value from the sensor
+            humidity_raw = ams_data.get("humidity_raw")
+            humidity_idx = ams_data.get("humidity")
+            # Use humidity_raw if available, otherwise fall back to humidity index
+            humidity_value = None
+            if humidity_raw is not None:
+                try:
+                    humidity_value = int(humidity_raw)
+                except (ValueError, TypeError):
+                    pass
+            if humidity_value is None and humidity_idx is not None:
+                try:
+                    humidity_value = int(humidity_idx)
+                except (ValueError, TypeError):
+                    pass
             ams_units.append(AMSUnit(
                 id=ams_data.get("id", 0),
-                humidity=ams_data.get("humidity"),
+                humidity=humidity_value,
                 temp=ams_data.get("temp"),
                 tray=trays,
             ))
@@ -178,12 +212,24 @@ async def get_printer_status(printer_id: int, db: AsyncSession = Depends(get_db)
     # Virtual tray (external spool holder) - comes from vt_tray in raw_data
     if "vt_tray" in raw_data:
         vt_data = raw_data["vt_tray"]
+        # Filter out empty/invalid tag values for vt_tray
+        vt_tag_uid = vt_data.get("tag_uid", "")
+        if vt_tag_uid in ("", "0000000000000000"):
+            vt_tag_uid = None
+        vt_tray_uuid = vt_data.get("tray_uuid", "")
+        if vt_tray_uuid in ("", "00000000000000000000000000000000"):
+            vt_tray_uuid = None
         vt_tray = AMSTray(
             id=254,  # Virtual tray ID
             tray_color=vt_data.get("tray_color"),
             tray_type=vt_data.get("tray_type"),
+            tray_sub_brands=vt_data.get("tray_sub_brands"),
             remain=vt_data.get("remain", 0),
             k=vt_data.get("k"),
+            tag_uid=vt_tag_uid,
+            tray_uuid=vt_tray_uuid,
+            nozzle_temp_min=vt_data.get("nozzle_temp_min"),
+            nozzle_temp_max=vt_data.get("nozzle_temp_max"),
         )
 
     # Convert nozzle info to response format
@@ -213,6 +259,18 @@ async def get_printer_status(printer_id: int, db: AsyncSession = Depends(get_db)
         auto_recovery_step_loss=state.print_options.auto_recovery_step_loss,
         filament_tangle_detect=state.print_options.filament_tangle_detect,
     )
+
+    # Get AMS mapping from raw_data (which AMS is connected to which nozzle)
+    ams_mapping = raw_data.get("ams_mapping", [])
+    # Get per-AMS extruder map: {ams_id: extruder_id} where 0=right, 1=left
+    ams_extruder_map = raw_data.get("ams_extruder_map", {})
+    logger.debug(f"API returning ams_mapping: {ams_mapping}, ams_extruder_map: {ams_extruder_map}")
+
+    # tray_now from MQTT is already a global tray ID: (ams_id * 4) + slot_id
+    # Per OpenBambuAPI docs: 254 = external spool, 255 = no filament, otherwise global tray ID
+    # No conversion needed - just use the raw value directly
+    tray_now = state.tray_now
+    logger.debug(f"Using tray_now directly as global ID: {tray_now}")
 
     return PrinterStatus(
         id=printer_id,
@@ -245,6 +303,9 @@ async def get_printer_status(printer_id: int, db: AsyncSession = Depends(get_db)
         speed_level=state.speed_level,
         chamber_light=state.chamber_light,
         active_extruder=state.active_extruder,
+        ams_mapping=ams_mapping,
+        ams_extruder_map=ams_extruder_map,
+        tray_now=tray_now,
     )
 
 
@@ -701,3 +762,133 @@ async def start_calibration(
         "nozzle_offset": nozzle_offset,
         "high_temp_heatbed": high_temp_heatbed,
     }
+
+
+# ============================================================================
+# Slot Preset Mapping Endpoints
+# ============================================================================
+
+
+@router.get("/{printer_id}/slot-presets")
+async def get_slot_presets(
+    printer_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get all saved slot-to-preset mappings for a printer."""
+    result = await db.execute(
+        select(SlotPresetMapping).where(SlotPresetMapping.printer_id == printer_id)
+    )
+    mappings = result.scalars().all()
+
+    return {
+        mapping.ams_id * 4 + mapping.tray_id: {
+            "ams_id": mapping.ams_id,
+            "tray_id": mapping.tray_id,
+            "preset_id": mapping.preset_id,
+            "preset_name": mapping.preset_name,
+        }
+        for mapping in mappings
+    }
+
+
+@router.get("/{printer_id}/slot-presets/{ams_id}/{tray_id}")
+async def get_slot_preset(
+    printer_id: int,
+    ams_id: int,
+    tray_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get the saved preset for a specific slot."""
+    result = await db.execute(
+        select(SlotPresetMapping).where(
+            SlotPresetMapping.printer_id == printer_id,
+            SlotPresetMapping.ams_id == ams_id,
+            SlotPresetMapping.tray_id == tray_id,
+        )
+    )
+    mapping = result.scalar_one_or_none()
+
+    if not mapping:
+        return None
+
+    return {
+        "ams_id": mapping.ams_id,
+        "tray_id": mapping.tray_id,
+        "preset_id": mapping.preset_id,
+        "preset_name": mapping.preset_name,
+    }
+
+
+@router.put("/{printer_id}/slot-presets/{ams_id}/{tray_id}")
+async def save_slot_preset(
+    printer_id: int,
+    ams_id: int,
+    tray_id: int,
+    preset_id: str,
+    preset_name: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Save a preset mapping for a specific slot."""
+    # Check printer exists
+    result = await db.execute(select(Printer).where(Printer.id == printer_id))
+    if not result.scalar_one_or_none():
+        raise HTTPException(404, "Printer not found")
+
+    # Check for existing mapping
+    result = await db.execute(
+        select(SlotPresetMapping).where(
+            SlotPresetMapping.printer_id == printer_id,
+            SlotPresetMapping.ams_id == ams_id,
+            SlotPresetMapping.tray_id == tray_id,
+        )
+    )
+    mapping = result.scalar_one_or_none()
+
+    if mapping:
+        # Update existing
+        mapping.preset_id = preset_id
+        mapping.preset_name = preset_name
+    else:
+        # Create new
+        mapping = SlotPresetMapping(
+            printer_id=printer_id,
+            ams_id=ams_id,
+            tray_id=tray_id,
+            preset_id=preset_id,
+            preset_name=preset_name,
+        )
+        db.add(mapping)
+
+    await db.commit()
+    await db.refresh(mapping)
+
+    return {
+        "ams_id": mapping.ams_id,
+        "tray_id": mapping.tray_id,
+        "preset_id": mapping.preset_id,
+        "preset_name": mapping.preset_name,
+    }
+
+
+@router.delete("/{printer_id}/slot-presets/{ams_id}/{tray_id}")
+async def delete_slot_preset(
+    printer_id: int,
+    ams_id: int,
+    tray_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a saved preset mapping for a slot."""
+    result = await db.execute(
+        select(SlotPresetMapping).where(
+            SlotPresetMapping.printer_id == printer_id,
+            SlotPresetMapping.ams_id == ams_id,
+            SlotPresetMapping.tray_id == tray_id,
+        )
+    )
+    mapping = result.scalar_one_or_none()
+
+    if mapping:
+        await db.delete(mapping)
+        await db.commit()
+
+    return {"success": True}

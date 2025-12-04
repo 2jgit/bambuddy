@@ -133,6 +133,12 @@ class MoveRequest(ConfirmableRequest):
 
 class AMSLoadRequest(BaseModel):
     tray_id: int = Field(..., ge=0, le=254, description="Tray ID (0-15 for AMS, 254 for external)")
+    extruder_id: int | None = Field(default=None, ge=0, le=1, description="Extruder ID for dual-nozzle printers (0=right, 1=left)")
+
+
+class AMSRefreshTrayRequest(BaseModel):
+    ams_id: int = Field(..., ge=0, le=128, description="AMS unit ID (0-3, or 128 for H2D external)")
+    tray_id: int = Field(..., ge=0, le=3, description="Tray ID within the AMS (0-3)")
 
 
 class GcodeRequest(ConfirmableRequest):
@@ -587,10 +593,11 @@ async def ams_load_filament(
     if client.state.state == "RUNNING":
         raise HTTPException(status_code=400, detail="Cannot change filament during print")
 
-    success = client.ams_load_filament(request.tray_id)
+    success = client.ams_load_filament(request.tray_id, request.extruder_id)
+    extruder_info = f" to extruder {request.extruder_id}" if request.extruder_id is not None else ""
     return ControlResponse(
         success=success,
-        message=f"Loading filament from tray {request.tray_id}" if success else "Failed to load filament"
+        message=f"Loading filament from tray {request.tray_id}{extruder_info}" if success else "Failed to load filament"
     )
 
 
@@ -611,6 +618,23 @@ async def ams_unload_filament(
     return ControlResponse(
         success=success,
         message="Unloading filament" if success else "Failed to unload filament"
+    )
+
+
+@router.post("/{printer_id}/control/ams/refresh-tray", response_model=ControlResponse)
+async def ams_refresh_tray(
+    printer_id: int,
+    request: AMSRefreshTrayRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Trigger RFID re-read for a specific AMS tray."""
+    await get_printer_or_404(printer_id, db)
+    client = get_mqtt_client_or_503(printer_id)
+
+    success = client.ams_refresh_tray(request.ams_id, request.tray_id)
+    return ControlResponse(
+        success=success,
+        message=f"Refreshing AMS {request.ams_id} tray {request.tray_id}" if success else "Failed to refresh tray"
     )
 
 

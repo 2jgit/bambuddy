@@ -112,6 +112,10 @@ class PrinterState:
     chamber_light: bool = False
     # Active extruder for dual nozzle (0=right, 1=left) - from device.extruder.info[X].hnow
     active_extruder: int = 0
+    # Currently loaded tray (global ID): 254 = external spool, 255 = no filament
+    tray_now: int = 255
+    # Pending load target - used to track what tray we're loading for H2D disambiguation
+    pending_tray_target: int | None = None
 
 
 # Stage name mapping from BambuStudio DeviceManager.cpp
@@ -236,6 +240,11 @@ class BambuMQTTClient:
         self._xcam_hold_start: dict[str, float] = {}
         self._xcam_hold_time: float = 3.0  # Ignore incoming data for 3 seconds after command
 
+        # Track last requested tray ID for H2D dual-nozzle printers
+        # H2D only reports slot number (0-3) in tray_now, not global tray ID
+        # We use our tracked value to resolve the correct global ID
+        self._last_load_tray_id: int | None = None
+
     @property
     def topic_subscribe(self) -> str:
         return f"device/{self.serial_number}/report"
@@ -346,7 +355,12 @@ class BambuMQTTClient:
 
             # Handle vt_tray (virtual tray / external spool) data
             if "vt_tray" in print_data:
-                self.state.raw_data["vt_tray"] = print_data["vt_tray"]
+                vt_tray = print_data["vt_tray"]
+                self.state.raw_data["vt_tray"] = vt_tray
+                # Log vt_tray to investigate per-extruder data for H2D
+                if not hasattr(self, '_vt_tray_logged') or not self._vt_tray_logged:
+                    logger.info(f"[{self.serial_number}] vt_tray data: {vt_tray}")
+                    self._vt_tray_logged = True
 
             # Check for K-profile response (extrusion_cali)
             if "command" in print_data:
@@ -572,6 +586,63 @@ class BambuMQTTClient:
         # Handle nested ams structure: {"ams": {"ams": [...]}} or {"ams": [...]}
         if isinstance(ams_data, dict) and "ams" in ams_data:
             ams_list = ams_data["ams"]
+            # Log all AMS dict fields to debug tray_now for H2D dual-nozzle
+            non_list_fields = {k: v for k, v in ams_data.items() if k != "ams"}
+            if non_list_fields:
+                logger.info(f"[{self.serial_number}] AMS dict fields: {non_list_fields}")
+            # Parse tray_now from AMS dict - this is the currently loaded tray global ID
+            if "tray_now" in ams_data:
+                raw_tray_now = ams_data["tray_now"]
+                # Convert string to int if needed
+                if isinstance(raw_tray_now, str):
+                    try:
+                        parsed_tray_now = int(raw_tray_now)
+                    except ValueError:
+                        parsed_tray_now = 255
+                else:
+                    parsed_tray_now = raw_tray_now if raw_tray_now is not None else 255
+
+                # H2D dual-nozzle printers report only slot number (0-3), not global tray ID
+                # Use pending_tray_target from our load command tracking for disambiguation
+                if parsed_tray_now >= 0 and parsed_tray_now <= 3:
+                    # Check if we have a pending target that matches this slot
+                    pending_target = self.state.pending_tray_target
+                    if pending_target is not None:
+                        pending_slot = pending_target % 4
+                        if pending_slot == parsed_tray_now:
+                            # Slot matches our pending target - use the full global ID
+                            logger.info(
+                                f"[{self.serial_number}] H2D tray_now disambiguation: "
+                                f"slot {parsed_tray_now} matches pending_tray_target {pending_target} -> using global ID {pending_target}"
+                            )
+                            self.state.tray_now = pending_target
+                            # Clear pending target now that load is confirmed
+                            self.state.pending_tray_target = None
+                        else:
+                            # Slot doesn't match our pending target - something changed, use slot as-is
+                            logger.warning(
+                                f"[{self.serial_number}] H2D tray_now: slot {parsed_tray_now} doesn't match "
+                                f"pending_tray_target {pending_target} (slot {pending_slot}) - using slot as global ID"
+                            )
+                            self.state.tray_now = parsed_tray_now
+                            # Clear pending target since it's stale
+                            self.state.pending_tray_target = None
+                    else:
+                        # No pending target, use slot number as-is
+                        # This happens when filament was loaded before app started or via printer touchscreen
+                        logger.debug(
+                            f"[{self.serial_number}] H2D tray_now: no pending_tray_target, "
+                            f"using slot {parsed_tray_now} as global ID (may be incorrect for H2D)"
+                        )
+                        self.state.tray_now = parsed_tray_now
+                else:
+                    # tray_now > 3 means it's already a global ID, or 255 means unloaded
+                    if parsed_tray_now == 255:
+                        # Filament unloaded - clear pending target
+                        self.state.pending_tray_target = None
+                    self.state.tray_now = parsed_tray_now
+
+                logger.debug(f"[{self.serial_number}] tray_now updated: {self.state.tray_now}")
         elif isinstance(ams_data, list):
             ams_list = ams_data
         else:
@@ -581,6 +652,35 @@ class BambuMQTTClient:
         # Store AMS data in raw_data so it's accessible via API
         self.state.raw_data["ams"] = ams_list
         logger.debug(f"[{self.serial_number}] Stored AMS data with {len(ams_list)} units")
+
+        # Extract ams_extruder_map from each AMS unit's info field
+        # According to OpenBambuAPI: info field bit 8 indicates which extruder (0=right, 1=left)
+        # Log AMS unit fields once to discover available fields
+        if not hasattr(self, '_ams_fields_logged') and ams_list:
+            first_unit = ams_list[0]
+            logger.info(f"[{self.serial_number}] AMS unit fields: {sorted(first_unit.keys())}")
+            for ams_unit in ams_list:
+                ams_id = ams_unit.get("id")
+                unit_info = {k: v for k, v in ams_unit.items() if k != "tray"}
+                logger.info(f"[{self.serial_number}] AMS {ams_id} data: {unit_info}")
+            self._ams_fields_logged = True
+
+        ams_extruder_map = {}
+        for ams_unit in ams_list:
+            ams_id = ams_unit.get("id")
+            info = ams_unit.get("info")
+            if ams_id is not None and info is not None:
+                try:
+                    info_val = int(info) if isinstance(info, str) else info
+                    # Extract bit 8 for extruder assignment (0=right, 1=left)
+                    extruder_id = (info_val >> 8) & 0x1
+                    ams_extruder_map[str(ams_id)] = extruder_id
+                    logger.debug(f"[{self.serial_number}] AMS {ams_id} info={info_val} -> extruder {extruder_id}")
+                except (ValueError, TypeError):
+                    pass
+        if ams_extruder_map:
+            self.state.raw_data["ams_extruder_map"] = ams_extruder_map
+            logger.debug(f"[{self.serial_number}] ams_extruder_map: {ams_extruder_map}")
 
         # Create a hash of relevant AMS data to detect changes
         ams_hash_data = []
@@ -648,6 +748,11 @@ class BambuMQTTClient:
             all_keys = sorted(data.keys())
             logger.info(f"[{self.serial_number}] ALL print data keys ({len(all_keys)}): {all_keys}")
             self._temp_fields_logged = True
+
+        # Log vir_slot data (once) - this may contain per-extruder slot mapping for H2D
+        if "vir_slot" in data and not hasattr(self, '_vir_slot_logged'):
+            logger.info(f"[{self.serial_number}] vir_slot data: {data['vir_slot']}")
+            self._vir_slot_logged = True
 
         # Log nozzle hardware info fields (once)
         nozzle_fields = {k: v for k, v in data.items() if 'nozzle' in k.lower() or 'hw' in k.lower() or 'extruder' in k.lower() or 'upgrade' in k.lower()}
@@ -1077,14 +1182,17 @@ class BambuMQTTClient:
                         if "diameter" in nozzle:
                             self.state.nozzles[idx].nozzle_diameter = str(nozzle["diameter"])
 
-        # Preserve AMS and vt_tray data when updating raw_data
+        # Preserve AMS, vt_tray, and ams_extruder_map data when updating raw_data
         ams_data = self.state.raw_data.get("ams")
         vt_tray_data = self.state.raw_data.get("vt_tray")
+        ams_extruder_map_data = self.state.raw_data.get("ams_extruder_map")
         self.state.raw_data = data
         if ams_data is not None:
             self.state.raw_data["ams"] = ams_data
         if vt_tray_data is not None:
             self.state.raw_data["vt_tray"] = vt_tray_data
+        if ams_extruder_map_data is not None:
+            self.state.raw_data["ams_extruder_map"] = ams_extruder_map_data
 
         # Log state transitions for debugging
         if "gcode_state" in data:
@@ -2178,11 +2286,13 @@ class BambuMQTTClient:
         """
         return self.send_gcode("M17")
 
-    def ams_load_filament(self, tray_id: int) -> bool:
+    def ams_load_filament(self, tray_id: int, extruder_id: int | None = None) -> bool:
         """Load filament from a specific AMS tray.
 
         Args:
-            tray_id: Tray ID (0-15 for AMS slots, or 254 for external spool)
+            tray_id: Global tray ID (0-15 for AMS slots, or 254 for external spool)
+            extruder_id: Extruder ID for dual-nozzle printers (0=right, 1=left).
+                         If None, defaults to 0.
 
         Returns:
             True if command was sent, False otherwise
@@ -2191,15 +2301,40 @@ class BambuMQTTClient:
             logger.warning(f"[{self.serial_number}] Cannot load filament: not connected")
             return False
 
+        # Default to extruder 0 if not specified
+        curr_nozzle = extruder_id if extruder_id is not None else 0
+
+        # Convert global tray_id to ams_id and slot_id
+        # External spool is special case (254)
+        if tray_id == 254:
+            ams_id = 255  # External spool
+            slot_id = 254
+        else:
+            ams_id = tray_id // 4  # AMS unit (0, 1, 2, 3...)
+            slot_id = tray_id % 4  # Slot within AMS (0, 1, 2, 3)
+
+        # Build command with ams_id and slot_id format (per HA-Bambulab integration)
         command = {
             "print": {
                 "command": "ams_change_filament",
-                "target": tray_id,
+                "target": tray_id,  # Keep target for compatibility
+                "ams_id": ams_id,
+                "slot_id": slot_id,
+                "curr_temp": 220,
+                "tar_temp": 220,
                 "sequence_id": "0"
             }
         }
+
         self._client.publish(self.topic_publish, json.dumps(command))
-        logger.info(f"[{self.serial_number}] Loading filament from tray {tray_id}")
+        logger.info(f"[{self.serial_number}] Loading filament from AMS {ams_id} slot {slot_id} (global tray {tray_id})")
+
+        # Track this load request for H2D dual-nozzle disambiguation
+        # H2D reports only slot number (0-3) in tray_now, so we use our tracked value
+        self._last_load_tray_id = tray_id
+        self.state.pending_tray_target = tray_id
+        logger.info(f"[{self.serial_number}] Set pending_tray_target={tray_id} for H2D disambiguation")
+
         return True
 
     def ams_unload_filament(self) -> bool:
@@ -2221,6 +2356,12 @@ class BambuMQTTClient:
         }
         self._client.publish(self.topic_publish, json.dumps(command))
         logger.info(f"[{self.serial_number}] Unloading filament")
+
+        # Clear tracked load request since we're unloading
+        self._last_load_tray_id = None
+        self.state.pending_tray_target = None
+        logger.info(f"[{self.serial_number}] Cleared pending_tray_target (unload)")
+
         return True
 
     def ams_control(self, action: str) -> bool:
@@ -2249,6 +2390,34 @@ class BambuMQTTClient:
         }
         self._client.publish(self.topic_publish, json.dumps(command))
         logger.info(f"[{self.serial_number}] AMS control: {action}")
+        return True
+
+    def ams_refresh_tray(self, ams_id: int, tray_id: int) -> bool:
+        """Trigger RFID re-read for a specific AMS tray.
+
+        Args:
+            ams_id: AMS unit ID (0-3, or 128 for H2D external tray)
+            tray_id: Tray ID within the AMS (0-3)
+
+        Returns:
+            True if command was sent, False otherwise
+        """
+        if not self._client or not self.state.connected:
+            logger.warning(f"[{self.serial_number}] Cannot refresh AMS tray: not connected")
+            return False
+
+        # Use ams_get_rfid command to trigger RFID re-read
+        # This command is used by Bambu Studio to re-read the RFID tag
+        command = {
+            "print": {
+                "command": "ams_get_rfid",
+                "ams_id": ams_id,
+                "slot_id": tray_id,
+                "sequence_id": "0"
+            }
+        }
+        self._client.publish(self.topic_publish, json.dumps(command))
+        logger.info(f"[{self.serial_number}] Triggering RFID re-read: AMS {ams_id}, slot {tray_id}")
         return True
 
     def set_timelapse(self, enable: bool) -> bool:

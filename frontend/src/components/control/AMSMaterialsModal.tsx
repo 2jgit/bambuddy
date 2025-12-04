@@ -57,9 +57,12 @@ export interface MaterialSettings {
 function hexToRgb(hex: string | null): string {
   if (!hex) return 'rgb(128, 128, 128)';
   const cleanHex = hex.replace('#', '').substring(0, 6);
-  const r = parseInt(cleanHex.substring(0, 2), 16) || 128;
-  const g = parseInt(cleanHex.substring(2, 4), 16) || 128;
-  const b = parseInt(cleanHex.substring(4, 6), 16) || 128;
+  const rParsed = parseInt(cleanHex.substring(0, 2), 16);
+  const gParsed = parseInt(cleanHex.substring(2, 4), 16);
+  const bParsed = parseInt(cleanHex.substring(4, 6), 16);
+  const r = isNaN(rParsed) ? 128 : rParsed;
+  const g = isNaN(gParsed) ? 128 : gParsed;
+  const b = isNaN(bParsed) ? 128 : bParsed;
   return `rgb(${r}, ${g}, ${b})`;
 }
 

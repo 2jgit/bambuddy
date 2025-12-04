@@ -22,20 +22,29 @@ interface AMSSectionDualProps {
 function hexToRgb(hex: string | null): string {
   if (!hex) return 'rgb(128, 128, 128)';
   const cleanHex = hex.replace('#', '').substring(0, 6);
-  const r = parseInt(cleanHex.substring(0, 2), 16) || 128;
-  const g = parseInt(cleanHex.substring(2, 4), 16) || 128;
-  const b = parseInt(cleanHex.substring(4, 6), 16) || 128;
+  const rParsed = parseInt(cleanHex.substring(0, 2), 16);
+  const gParsed = parseInt(cleanHex.substring(2, 4), 16);
+  const bParsed = parseInt(cleanHex.substring(4, 6), 16);
+  const r = isNaN(rParsed) ? 128 : rParsed;
+  const g = isNaN(gParsed) ? 128 : gParsed;
+  const b = isNaN(bParsed) ? 128 : bParsed;
   return `rgb(${r}, ${g}, ${b})`;
 }
 
 function isLightColor(hex: string | null): boolean {
   if (!hex) return false;
   const cleanHex = hex.replace('#', '').substring(0, 6);
-  const r = parseInt(cleanHex.substring(0, 2), 16) || 0;
-  const g = parseInt(cleanHex.substring(2, 4), 16) || 0;
-  const b = parseInt(cleanHex.substring(4, 6), 16) || 0;
-  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  return luminance > 0.5;
+  // Ensure we have a valid 6-char hex
+  if (cleanHex.length < 6) return false;
+  const rParsed = parseInt(cleanHex.substring(0, 2), 16);
+  const gParsed = parseInt(cleanHex.substring(2, 4), 16);
+  const bParsed = parseInt(cleanHex.substring(4, 6), 16);
+  // If any parsing fails, treat as dark
+  if (isNaN(rParsed) || isNaN(gParsed) || isNaN(bParsed)) return false;
+  // Use relative luminance formula (WCAG)
+  const luminance = (0.299 * rParsed + 0.587 * gParsed + 0.114 * bParsed) / 255;
+  // Lower threshold (0.45) to ensure more colors get white text for better contrast
+  return luminance > 0.45;
 }
 
 // Single humidity icon that fills based on level
@@ -73,27 +82,74 @@ interface StepInfo {
 
 function FilamentChangeCard({ isLoading, currentStage, onRetry }: FilamentChangeCardProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  // Track the highest progress step reached to show proper progression
+  // 0 = initial, 1 = push started, 2 = heating, 3 = purging
+  const [progressStep, setProgressStep] = useState(0);
+  const prevStageRef = useRef(currentStage);
 
-  // Determine step status based on current stage
-  // When stage is -1 (initial/waiting), show first step as in_progress
+  // Update progress based on stage transitions
+  useEffect(() => {
+    // For loading: track progression through stages
+    if (isLoading) {
+      if (currentStage === STAGE_FILAMENT_LOADING || currentStage === STAGE_CHANGING_FILAMENT) {
+        // Push/loading stage - at least step 1
+        if (progressStep < 1) setProgressStep(1);
+      } else if (currentStage === STAGE_HEATING_NOZZLE) {
+        // Heating stage - at least step 2
+        if (progressStep < 2) setProgressStep(2);
+      } else if (progressStep >= 2 && currentStage === STAGE_CHANGING_FILAMENT) {
+        // After heating, back to changing = purge stage
+        setProgressStep(3);
+      }
+    } else {
+      // For unloading: track heating -> unloading
+      if (currentStage === STAGE_HEATING_NOZZLE || currentStage === STAGE_CHANGING_FILAMENT) {
+        if (progressStep < 1) setProgressStep(1);
+      } else if (currentStage === STAGE_FILAMENT_UNLOADING) {
+        if (progressStep < 2) setProgressStep(2);
+      }
+    }
+
+    // Reset progress when stage returns to idle
+    if (currentStage === -1 && prevStageRef.current !== -1) {
+      // Operation completed, reset for next time
+      setProgressStep(0);
+    }
+
+    prevStageRef.current = currentStage;
+  }, [currentStage, isLoading, progressStep]);
+
+  // Initialize progress to step 1 when card first shows
+  useEffect(() => {
+    if (progressStep === 0) {
+      setProgressStep(1);
+    }
+  }, []);
+
+  // Determine step status based on tracked progress
   const getLoadingSteps = (): StepInfo[] => {
-    // Loading sequence: Heat nozzle (7) -> Push filament (24) -> Purge (still 24 or complete)
+    // Loading sequence: Push filament -> Heat nozzle -> Purge
     let step1Status: 'completed' | 'in_progress' | 'pending' = 'pending';
     let step2Status: 'completed' | 'in_progress' | 'pending' = 'pending';
     let step3Status: 'completed' | 'in_progress' | 'pending' = 'pending';
 
-    if (currentStage === -1 || currentStage === STAGE_HEATING_NOZZLE || currentStage === STAGE_CHANGING_FILAMENT) {
-      // Initial state or heating - step 1 is active
-      step1Status = 'in_progress';
-    } else if (currentStage === STAGE_FILAMENT_LOADING) {
-      // Loading filament - step 1 done, step 2 active
+    if (progressStep >= 3) {
+      // Purging - steps 1 & 2 done, step 3 active
+      step1Status = 'completed';
+      step2Status = 'completed';
+      step3Status = 'in_progress';
+    } else if (progressStep >= 2) {
+      // Heating - step 1 done, step 2 active
       step1Status = 'completed';
       step2Status = 'in_progress';
+    } else if (progressStep >= 1) {
+      // Pushing - step 1 active
+      step1Status = 'in_progress';
     }
 
     return [
-      { label: 'Heat the nozzle', stepNumber: 1, status: step1Status },
-      { label: 'Push new filament into extruder', stepNumber: 2, status: step2Status },
+      { label: 'Push new filament into extruder', stepNumber: 1, status: step1Status },
+      { label: 'Heat the nozzle', stepNumber: 2, status: step2Status },
       { label: 'Purge old filament', stepNumber: 3, status: step3Status },
     ];
   };
@@ -102,13 +158,13 @@ function FilamentChangeCard({ isLoading, currentStage, onRetry }: FilamentChange
     let step1Status: 'completed' | 'in_progress' | 'pending' = 'pending';
     let step2Status: 'completed' | 'in_progress' | 'pending' = 'pending';
 
-    if (currentStage === -1 || currentStage === STAGE_HEATING_NOZZLE || currentStage === STAGE_CHANGING_FILAMENT) {
-      // Initial state or heating - step 1 is active
-      step1Status = 'in_progress';
-    } else if (currentStage === STAGE_FILAMENT_UNLOADING) {
-      // Unloading filament - step 1 done, step 2 active
+    if (progressStep >= 2) {
+      // Unloading - step 1 done, step 2 active
       step1Status = 'completed';
       step2Status = 'in_progress';
+    } else if (progressStep >= 1) {
+      // Heating - step 1 active
+      step1Status = 'in_progress';
     }
 
     return [
@@ -340,8 +396,8 @@ function AMSPanelContent({
                       : 'border-bambu-dark-tertiary hover:border-bambu-gray'
                   } ${isEmpty ? 'opacity-50' : 'cursor-pointer'}`}
                 >
-                  {/* Fill level indicator - only for Bambu filaments with valid remain data */}
-                  {!isEmpty && tray.tray_uuid && tray.remain >= 0 && (
+                  {/* Fill level indicator - show for any filament with valid remain data */}
+                  {!isEmpty && tray.remain >= 0 && (
                     <div
                       className="absolute bottom-0 left-0 right-0 transition-all"
                       style={{
@@ -350,8 +406,8 @@ function AMSPanelContent({
                       }}
                     />
                   )}
-                  {/* Full color background for non-Bambu filaments or no remain data */}
-                  {!isEmpty && (!tray.tray_uuid || tray.remain < 0) && (
+                  {/* Full color background only when no valid remain data */}
+                  {!isEmpty && tray.remain < 0 && (
                     <div
                       className="absolute inset-0"
                       style={{
@@ -371,9 +427,8 @@ function AMSPanelContent({
                   {/* Content overlay */}
                   <div className="relative w-full h-full flex flex-col items-center justify-end pb-[5px]">
                     <span
-                      className={`text-[11px] font-semibold mb-1 ${
-                        isLight ? 'text-gray-800' : 'text-white'
-                      } ${isLight ? '' : 'drop-shadow-sm'}`}
+                      className="text-[11px] font-semibold mb-1"
+                      style={{ color: isLight ? '#000000' : '#ffffff' }}
                     >
                       {isEmpty ? '--' : tray.tray_type}
                     </span>
@@ -633,34 +688,32 @@ export function AMSSectionDual({ printerId, printerModel, status, nozzleCount }:
 
   // Distribute AMS units based on ams_extruder_map
   // Each AMS unit's info field tells us which extruder it's connected to:
-  // extruder 0 = right nozzle, extruder 1 = left nozzle
+  // In Bambu slicer convention: extruder 0 = left nozzle, extruder 1 = right nozzle
   const leftUnits = (() => {
     if (!isDualNozzle) return amsUnits;
     if (Object.keys(amsExtruderMap).length > 0) {
-      // Filter AMS units assigned to extruder 1 (left nozzle)
+      // Filter AMS units assigned to extruder 0 (left nozzle in slicer convention)
       // JSON keys are strings, so convert unit.id to string
-      return amsUnits.filter(unit => amsExtruderMap[String(unit.id)] === 1);
+      return amsUnits.filter(unit => amsExtruderMap[String(unit.id)] === 0);
     }
-    // Fallback: odd indices go to left (extruder 1)
-    return amsUnits.filter((_, i) => i % 2 === 1);
+    // Fallback: even indices go to left (extruder 0)
+    return amsUnits.filter((_, i) => i % 2 === 0);
   })();
 
   const rightUnits = (() => {
     if (!isDualNozzle) return [];
     if (Object.keys(amsExtruderMap).length > 0) {
-      // Filter AMS units assigned to extruder 0 (right nozzle)
+      // Filter AMS units assigned to extruder 1 (right nozzle in slicer convention)
       // JSON keys are strings, so convert unit.id to string
-      return amsUnits.filter(unit => amsExtruderMap[String(unit.id)] === 0);
+      return amsUnits.filter(unit => amsExtruderMap[String(unit.id)] === 1);
     }
-    // Fallback: even indices go to right (extruder 0)
-    return amsUnits.filter((_, i) => i % 2 === 0);
+    // Fallback: odd indices go to right (extruder 1)
+    return amsUnits.filter((_, i) => i % 2 === 1);
   })();
 
   const [leftAmsIndex, setLeftAmsIndex] = useState(0);
   const [rightAmsIndex, setRightAmsIndex] = useState(0);
   const [selectedTray, setSelectedTray] = useState<number | null>(null);
-  // Track if load has been triggered (to disable Load button until unload or slot change)
-  const [loadTriggered, setLoadTriggered] = useState(false);
 
   // Modal states
   const [humidityModal, setHumidityModal] = useState<{ humidity: number; temp: number } | null>(null);
@@ -674,7 +727,7 @@ export function AMSSectionDual({ printerId, printerModel, status, nozzleCount }:
   // Track if we've done initial sync from tray_now
   const initialSyncDone = useRef(false);
 
-  // Sync selectedTray and loadTriggered from status.tray_now on initial load
+  // Sync selectedTray from status.tray_now on initial load
   // tray_now: 255 = no filament loaded, 0-253 = valid tray ID, 254 = external spool
   useEffect(() => {
     if (initialSyncDone.current) return;
@@ -683,10 +736,10 @@ export function AMSSectionDual({ printerId, printerModel, status, nozzleCount }:
     if (trayNow !== undefined && trayNow !== null) {
       initialSyncDone.current = true;
       if (trayNow !== 255 && trayNow !== 254) {
-        // Valid AMS tray is loaded - select it and set loadTriggered
+        // Valid AMS tray is loaded - select it
+        // Note: We don't set loadTriggered here because the user may want to load a different slot
         console.log(`[AMSSectionDual] Initializing from tray_now: ${trayNow}`);
         setSelectedTray(trayNow);
-        setLoadTriggered(true);
       } else {
         // No filament loaded or external spool
         console.log(`[AMSSectionDual] tray_now=${trayNow} (no AMS filament loaded)`);
@@ -699,8 +752,6 @@ export function AMSSectionDual({ printerId, printerModel, status, nozzleCount }:
       api.amsLoadFilament(printerId, trayId, extruderId),
     onSuccess: (data, { trayId, extruderId }) => {
       console.log(`[AMSSectionDual] Load filament success (tray ${trayId}, extruder ${extruderId}):`, data);
-      // Disable Load button after successful load
-      setLoadTriggered(true);
     },
     onError: (error, { trayId, extruderId }) => {
       console.error(`[AMSSectionDual] Load filament error (tray ${trayId}, extruder ${extruderId}):`, error);
@@ -711,20 +762,14 @@ export function AMSSectionDual({ printerId, printerModel, status, nozzleCount }:
     mutationFn: () => api.amsUnloadFilament(printerId),
     onSuccess: (data) => {
       console.log(`[AMSSectionDual] Unload filament success:`, data);
-      // Re-enable Load button after unload
-      setLoadTriggered(false);
     },
     onError: (error) => {
       console.error(`[AMSSectionDual] Unload filament error:`, error);
     },
   });
 
-  // Handle tray selection - also re-enables Load button when changing slot
+  // Handle tray selection
   const handleTraySelect = (trayId: number | null) => {
-    if (trayId !== selectedTray) {
-      // Slot changed - re-enable Load button
-      setLoadTriggered(false);
-    }
     setSelectedTray(trayId);
   };
 
@@ -805,7 +850,7 @@ export function AMSSectionDual({ printerId, printerModel, status, nozzleCount }:
   ].includes(currentStage);
 
   // Auto-close card when operation completes
-  // Track when we transition from an active filament change stage back to -1
+  // Track when we transition from an active filament change stage back to idle
   useEffect(() => {
     const wasInFilamentChange = [
       STAGE_HEATING_NOZZLE,
@@ -818,8 +863,8 @@ export function AMSSectionDual({ printerId, printerModel, status, nozzleCount }:
       // MQTT is now reporting a stage, clear user-triggered state
       // Card will continue showing because isMqttFilamentChangeActive is true
       setUserFilamentChange(null);
-    } else if (wasInFilamentChange && currentStage === -1) {
-      // Transition from active stage to idle - operation completed
+    } else if (wasInFilamentChange && !isMqttFilamentChangeActive) {
+      // Transition from active stage to idle (any non-filament-change stage, not just -1)
       // Close the card by clearing user state
       setUserFilamentChange(null);
     }
@@ -867,8 +912,8 @@ export function AMSSectionDual({ printerId, printerModel, status, nozzleCount }:
         const currentLeftUnit = leftUnits[leftAmsIndex];
         const currentRightUnit = rightUnits[rightAmsIndex];
 
-        if (extruderId === 1) {
-          // Left side (extruder 1)
+        if (extruderId === 0) {
+          // Left side (extruder 0) - leftUnits filters for amsExtruderMap === 0
           // Only show colored wiring if the currently displayed AMS unit is the one with loaded filament
           const isDisplayed = currentLeftUnit?.id === unit.id;
           return {
@@ -878,7 +923,7 @@ export function AMSSectionDual({ printerId, printerModel, status, nozzleCount }:
             rightFilamentColor: null
           };
         } else {
-          // Right side (extruder 0)
+          // Right side (extruder 1) - rightUnits filters for amsExtruderMap === 1
           const isDisplayed = currentRightUnit?.id === unit.id;
           return {
             leftActiveSlot: null,
@@ -957,9 +1002,9 @@ export function AMSSectionDual({ printerId, printerModel, status, nozzleCount }:
         <div className="flex items-center gap-2">
           <button
             onClick={handleUnload}
-            disabled={!isConnected || isPrinting || isLoading || !loadTriggered}
+            disabled={!isConnected || isPrinting || isLoading || trayNow === 255}
             className={`px-7 py-2.5 rounded-lg text-sm transition-colors border ${
-              !isConnected || isPrinting || isLoading || !loadTriggered
+              !isConnected || isPrinting || isLoading || trayNow === 255
                 ? 'bg-white dark:bg-bambu-dark text-gray-400 dark:text-gray-500 border-gray-200 dark:border-bambu-dark-tertiary cursor-not-allowed'
                 : 'bg-bambu-green text-white border-bambu-green hover:bg-bambu-green-dark hover:border-bambu-green-dark'
             }`}
@@ -972,9 +1017,9 @@ export function AMSSectionDual({ printerId, printerModel, status, nozzleCount }:
           </button>
           <button
             onClick={handleLoad}
-            disabled={!isConnected || isPrinting || selectedTray === null || isLoading || loadTriggered}
+            disabled={!isConnected || isPrinting || selectedTray === null || isLoading}
             className={`px-7 py-2.5 rounded-lg text-sm transition-colors border ${
-              !isConnected || isPrinting || selectedTray === null || isLoading || loadTriggered
+              !isConnected || isPrinting || selectedTray === null || isLoading
                 ? 'bg-white dark:bg-bambu-dark text-gray-400 dark:text-gray-500 border-gray-200 dark:border-bambu-dark-tertiary cursor-not-allowed'
                 : 'bg-bambu-green text-white border-bambu-green hover:bg-bambu-green-dark hover:border-bambu-green-dark'
             }`}

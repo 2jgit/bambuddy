@@ -121,3 +121,9 @@ class PrinterStatus(BaseModel):
     chamber_light: bool = False
     # Active extruder for dual nozzle (0=right, 1=left)
     active_extruder: int = 0
+    # AMS mapping for dual nozzle: which AMS is connected to which nozzle
+    ams_mapping: list[int] = []
+    # Per-AMS extruder map: {ams_id: extruder_id} where 0=right, 1=left
+    ams_extruder_map: dict[str, int] = {}
+    # Currently loaded tray (global ID): 254 = external spool, 255 = no filament
+    tray_now: int = 255
