@@ -677,6 +677,40 @@ export interface EmailConfig {
   use_tls?: boolean;
 }
 
+// Notification Template types
+export interface NotificationTemplate {
+  id: number;
+  event_type: string;
+  name: string;
+  title_template: string;
+  body_template: string;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NotificationTemplateUpdate {
+  title_template?: string;
+  body_template?: string;
+}
+
+export interface EventVariablesResponse {
+  event_type: string;
+  event_name: string;
+  variables: string[];
+}
+
+export interface TemplatePreviewRequest {
+  event_type: string;
+  title_template: string;
+  body_template: string;
+}
+
+export interface TemplatePreviewResponse {
+  title: string;
+  body: string;
+}
+
 // Spoolman types
 export interface SpoolmanStatus {
   enabled: boolean;
@@ -1226,6 +1260,25 @@ export const api = {
     request<NotificationTestResponse>(`/notifications/${id}/test`, { method: 'POST' }),
   testNotificationConfig: (data: NotificationTestRequest) =>
     request<NotificationTestResponse>('/notifications/test-config', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  // Notification Templates
+  getNotificationTemplates: () => request<NotificationTemplate[]>('/notification-templates'),
+  getNotificationTemplate: (id: number) => request<NotificationTemplate>(`/notification-templates/${id}`),
+  updateNotificationTemplate: (id: number, data: NotificationTemplateUpdate) =>
+    request<NotificationTemplate>(`/notification-templates/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  resetNotificationTemplate: (id: number) =>
+    request<NotificationTemplate>(`/notification-templates/${id}/reset`, {
+      method: 'POST',
+    }),
+  getTemplateVariables: () => request<EventVariablesResponse[]>('/notification-templates/variables'),
+  previewTemplate: (data: TemplatePreviewRequest) =>
+    request<TemplatePreviewResponse>('/notification-templates/preview', {
       method: 'POST',
       body: JSON.stringify(data),
     }),

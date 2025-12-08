@@ -54,7 +54,7 @@ from fastapi.responses import FileResponse
 from backend.app.core.database import init_db, async_session
 from sqlalchemy import select, or_
 from backend.app.core.websocket import ws_manager
-from backend.app.api.routes import printers, archives, websocket, filaments, cloud, smart_plugs, print_queue, kprofiles, notifications, spoolman, updates, maintenance, camera
+from backend.app.api.routes import printers, archives, websocket, filaments, cloud, smart_plugs, print_queue, kprofiles, notifications, notification_templates, spoolman, updates, maintenance, camera
 from backend.app.api.routes import settings as settings_routes
 from backend.app.services.notification_service import notification_service
 from backend.app.services.printer_manager import (
@@ -1018,6 +1018,7 @@ app.include_router(smart_plugs.router, prefix=app_settings.api_prefix)
 app.include_router(print_queue.router, prefix=app_settings.api_prefix)
 app.include_router(kprofiles.router, prefix=app_settings.api_prefix)
 app.include_router(notifications.router, prefix=app_settings.api_prefix)
+app.include_router(notification_templates.router, prefix=app_settings.api_prefix)
 app.include_router(spoolman.router, prefix=app_settings.api_prefix)
 app.include_router(updates.router, prefix=app_settings.api_prefix)
 app.include_router(maintenance.router, prefix=app_settings.api_prefix)

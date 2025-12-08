@@ -30,6 +30,17 @@ export function AddNotificationModal({ provider, onClose }: AddNotificationModal
   const [quietHoursStart, setQuietHoursStart] = useState(provider?.quiet_hours_start || '22:00');
   const [quietHoursEnd, setQuietHoursEnd] = useState(provider?.quiet_hours_end || '07:00');
 
+  // Event toggles
+  const [onPrintStart, setOnPrintStart] = useState(provider?.on_print_start ?? false);
+  const [onPrintComplete, setOnPrintComplete] = useState(provider?.on_print_complete ?? true);
+  const [onPrintFailed, setOnPrintFailed] = useState(provider?.on_print_failed ?? true);
+  const [onPrintStopped, setOnPrintStopped] = useState(provider?.on_print_stopped ?? true);
+  const [onPrintProgress, setOnPrintProgress] = useState(provider?.on_print_progress ?? false);
+  const [onPrinterOffline, setOnPrinterOffline] = useState(provider?.on_printer_offline ?? false);
+  const [onPrinterError, setOnPrinterError] = useState(provider?.on_printer_error ?? false);
+  const [onFilamentLow, setOnFilamentLow] = useState(provider?.on_filament_low ?? false);
+  const [onMaintenanceDue, setOnMaintenanceDue] = useState(provider?.on_maintenance_due ?? false);
+
   // Provider-specific config
   const [config, setConfig] = useState<Record<string, string>>(
     provider?.config ? Object.fromEntries(Object.entries(provider.config).map(([k, v]) => [k, String(v)])) : {}
@@ -115,6 +126,16 @@ export function AddNotificationModal({ provider, onClose }: AddNotificationModal
       quiet_hours_enabled: quietHoursEnabled,
       quiet_hours_start: quietHoursEnabled ? quietHoursStart : null,
       quiet_hours_end: quietHoursEnabled ? quietHoursEnd : null,
+      // Event toggles
+      on_print_start: onPrintStart,
+      on_print_complete: onPrintComplete,
+      on_print_failed: onPrintFailed,
+      on_print_stopped: onPrintStopped,
+      on_print_progress: onPrintProgress,
+      on_printer_offline: onPrinterOffline,
+      on_printer_error: onPrinterError,
+      on_filament_low: onFilamentLow,
+      on_maintenance_due: onMaintenanceDue,
     };
 
     if (isEditing) {
@@ -378,6 +399,64 @@ export function AddNotificationModal({ provider, onClose }: AddNotificationModal
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Event Toggles */}
+          <div className="space-y-3">
+            <p className="text-sm text-bambu-gray">Notification Events</p>
+
+            {/* Print Events */}
+            <div className="space-y-2 p-3 bg-bambu-dark rounded-lg">
+              <p className="text-xs text-bambu-gray uppercase tracking-wide mb-2">Print Events</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-white">Start</span>
+                  <Toggle checked={onPrintStart} onChange={setOnPrintStart} />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-white">Complete</span>
+                  <Toggle checked={onPrintComplete} onChange={setOnPrintComplete} />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-white">Failed</span>
+                  <Toggle checked={onPrintFailed} onChange={setOnPrintFailed} />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-white">Stopped</span>
+                  <Toggle checked={onPrintStopped} onChange={setOnPrintStopped} />
+                </div>
+                <div className="flex items-center justify-between col-span-2">
+                  <div>
+                    <span className="text-sm text-white">Progress</span>
+                    <span className="text-xs text-bambu-gray ml-1">(25%, 50%, 75%)</span>
+                  </div>
+                  <Toggle checked={onPrintProgress} onChange={setOnPrintProgress} />
+                </div>
+              </div>
+            </div>
+
+            {/* Printer Status Events */}
+            <div className="space-y-2 p-3 bg-bambu-dark rounded-lg">
+              <p className="text-xs text-bambu-gray uppercase tracking-wide mb-2">Printer Status</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-white">Offline</span>
+                  <Toggle checked={onPrinterOffline} onChange={setOnPrinterOffline} />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-white">Error</span>
+                  <Toggle checked={onPrinterError} onChange={setOnPrinterError} />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-white">Low Filament</span>
+                  <Toggle checked={onFilamentLow} onChange={setOnFilamentLow} />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-white">Maintenance</span>
+                  <Toggle checked={onMaintenanceDue} onChange={setOnMaintenanceDue} />
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Actions */}

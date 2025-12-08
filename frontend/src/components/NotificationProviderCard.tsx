@@ -90,7 +90,10 @@ export function NotificationProviderCard({ provider, onEdit }: NotificationProvi
               {provider.last_success && (
                 <span className="text-xs text-bambu-green">Last sent: {new Date(provider.last_success).toLocaleDateString()}</span>
               )}
-              {provider.last_error && (
+              {/* Only show error if it's more recent than last success */}
+              {provider.last_error && provider.last_error_at && (
+                !provider.last_success || new Date(provider.last_error_at) > new Date(provider.last_success)
+              ) && (
                 <span className="text-xs text-red-400" title={provider.last_error}>Error</span>
               )}
             </div>
@@ -130,16 +133,16 @@ export function NotificationProviderCard({ provider, onEdit }: NotificationProvi
               <span className="px-2 py-0.5 bg-gray-500/20 text-gray-400 text-xs rounded">Offline</span>
             )}
             {provider.on_printer_error && (
-              <span className="px-2 py-0.5 bg-orange-500/20 text-orange-400 text-xs rounded">Error</span>
+              <span className="px-2 py-0.5 bg-rose-500/20 text-rose-400 text-xs rounded">Error</span>
             )}
             {provider.on_filament_low && (
-              <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 text-xs rounded">Low Filament</span>
+              <span className="px-2 py-0.5 bg-cyan-500/20 text-cyan-400 text-xs rounded">Low Filament</span>
             )}
             {provider.on_maintenance_due && (
               <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 text-xs rounded">Maintenance</span>
             )}
             {provider.quiet_hours_enabled && (
-              <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 text-xs rounded flex items-center gap-1">
+              <span className="px-2 py-0.5 bg-indigo-500/20 text-indigo-400 text-xs rounded flex items-center gap-1">
                 <Moon className="w-3 h-3" />
                 Quiet
               </span>

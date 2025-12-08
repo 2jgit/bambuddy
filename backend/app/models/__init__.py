@@ -5,6 +5,7 @@ from backend.app.models.settings import Settings
 from backend.app.models.smart_plug import SmartPlug
 from backend.app.models.maintenance import MaintenanceType, PrinterMaintenance, MaintenanceHistory
 from backend.app.models.kprofile_note import KProfileNote
+from backend.app.models.notification_template import NotificationTemplate
 
 __all__ = [
     "Printer",
@@ -16,4 +17,5 @@ __all__ = [
     "PrinterMaintenance",
     "MaintenanceHistory",
     "KProfileNote",
+    "NotificationTemplate",
 ]

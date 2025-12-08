@@ -1,14 +1,15 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Plus, Plug, AlertTriangle, RotateCcw, Bell, Download, RefreshCw, ExternalLink, Globe, Droplets, Thermometer } from 'lucide-react';
+import { Loader2, Plus, Plug, AlertTriangle, RotateCcw, Bell, Download, RefreshCw, ExternalLink, Globe, Droplets, Thermometer, FileText, Edit2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api/client';
-import type { AppSettings, SmartPlug, NotificationProvider, UpdateStatus } from '../api/client';
+import type { AppSettings, SmartPlug, NotificationProvider, NotificationTemplate, UpdateStatus } from '../api/client';
 import { Card, CardContent, CardHeader } from '../components/Card';
 import { Button } from '../components/Button';
 import { SmartPlugCard } from '../components/SmartPlugCard';
 import { AddSmartPlugModal } from '../components/AddSmartPlugModal';
 import { NotificationProviderCard } from '../components/NotificationProviderCard';
 import { AddNotificationModal } from '../components/AddNotificationModal';
+import { NotificationTemplateEditor } from '../components/NotificationTemplateEditor';
 import { SpoolmanSettings } from '../components/SpoolmanSettings';
 import { defaultNavItems, getDefaultView, setDefaultView } from '../components/Layout';
 import { availableLanguages } from '../i18n';
@@ -24,6 +25,7 @@ export function SettingsPage() {
   const [editingPlug, setEditingPlug] = useState<SmartPlug | null>(null);
   const [showNotificationModal, setShowNotificationModal] = useState(false);
   const [editingProvider, setEditingProvider] = useState<NotificationProvider | null>(null);
+  const [editingTemplate, setEditingTemplate] = useState<NotificationTemplate | null>(null);
   const [defaultView, setDefaultViewState] = useState<string>(getDefaultView());
   const [activeTab, setActiveTab] = useState<'general' | 'plugs' | 'notifications'>('general');
 
@@ -50,6 +52,11 @@ export function SettingsPage() {
   const { data: notificationProviders, isLoading: providersLoading } = useQuery({
     queryKey: ['notification-providers'],
     queryFn: api.getNotificationProviders,
+  });
+
+  const { data: notificationTemplates, isLoading: templatesLoading } = useQuery({
+    queryKey: ['notification-templates'],
+    queryFn: api.getNotificationTemplates,
   });
 
   const { data: ffmpegStatus } = useQuery({
@@ -741,88 +748,144 @@ export function SettingsPage() {
 
       {/* Notifications Tab */}
       {activeTab === 'notifications' && (
-        <div className="max-w-4xl">
-          <div className="flex items-center justify-between mb-6">
-            <div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Left Column: Providers */}
+          <div>
+            <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-white flex items-center gap-2">
                 <Bell className="w-5 h-5 text-bambu-green" />
-                Notifications
+                Providers
               </h2>
-              <p className="text-sm text-bambu-gray mt-1">
-                Get notified about print events via WhatsApp, Telegram, Email, Discord, and more.
-              </p>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setEditingProvider(null);
+                  setShowNotificationModal(true);
+                }}
+              >
+                <Plus className="w-4 h-4" />
+                Add
+              </Button>
             </div>
-            <Button
-              onClick={() => {
-                setEditingProvider(null);
-                setShowNotificationModal(true);
-              }}
-            >
-              <Plus className="w-4 h-4" />
-              Add Provider
-            </Button>
-          </div>
 
-          {/* Notification Language Setting */}
-          <Card className="mb-6">
-            <CardContent className="py-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-white font-medium">{t('settings.notificationLanguage')}</p>
-                  <p className="text-sm text-bambu-gray">{t('settings.notificationLanguageDescription')}</p>
-                </div>
-                <select
-                  value={localSettings.notification_language || 'en'}
-                  onChange={(e) => updateSetting('notification_language', e.target.value)}
-                  className="px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-bambu-green"
-                >
-                  {availableLanguages.map((lang) => (
-                    <option key={lang.code} value={lang.code}>
-                      {lang.nativeName}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </CardContent>
-          </Card>
-
-          {providersLoading ? (
-            <div className="flex justify-center py-12">
-              <Loader2 className="w-8 h-8 text-bambu-green animate-spin" />
-            </div>
-          ) : notificationProviders && notificationProviders.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {notificationProviders.map((provider) => (
-                <NotificationProviderCard
-                  key={provider.id}
-                  provider={provider}
-                  onEdit={(p) => {
-                    setEditingProvider(p);
-                    setShowNotificationModal(true);
-                  }}
-                />
-              ))}
-            </div>
-          ) : (
-            <Card>
-              <CardContent className="py-12">
-                <div className="text-center text-bambu-gray">
-                  <Bell className="w-16 h-16 mx-auto mb-4 opacity-30" />
-                  <p className="text-lg font-medium text-white mb-2">No notification providers configured</p>
-                  <p className="text-sm mb-4">Add a notification provider to receive alerts about your print jobs.</p>
-                  <Button
-                    onClick={() => {
-                      setEditingProvider(null);
-                      setShowNotificationModal(true);
-                    }}
+            {/* Notification Language Setting */}
+            <Card className="mb-4">
+              <CardContent className="py-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-white text-sm font-medium">{t('settings.notificationLanguage')}</p>
+                    <p className="text-xs text-bambu-gray">{t('settings.notificationLanguageDescription')}</p>
+                  </div>
+                  <select
+                    value={localSettings.notification_language || 'en'}
+                    onChange={(e) => updateSetting('notification_language', e.target.value)}
+                    className="px-2 py-1.5 bg-bambu-dark border border-bambu-dark-tertiary rounded text-white text-sm focus:outline-none focus:ring-1 focus:ring-bambu-green"
                   >
-                    <Plus className="w-4 h-4" />
-                    Add Your First Provider
-                  </Button>
+                    {availableLanguages.map((lang) => (
+                      <option key={lang.code} value={lang.code}>
+                        {lang.nativeName}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </CardContent>
             </Card>
-          )}
+
+            {providersLoading ? (
+              <div className="flex justify-center py-12">
+                <Loader2 className="w-6 h-6 text-bambu-green animate-spin" />
+              </div>
+            ) : notificationProviders && notificationProviders.length > 0 ? (
+              <div className="space-y-3">
+                {notificationProviders.map((provider) => (
+                  <NotificationProviderCard
+                    key={provider.id}
+                    provider={provider}
+                    onEdit={(p) => {
+                      setEditingProvider(p);
+                      setShowNotificationModal(true);
+                    }}
+                  />
+                ))}
+              </div>
+            ) : (
+              <Card>
+                <CardContent className="py-8">
+                  <div className="text-center text-bambu-gray">
+                    <Bell className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                    <p className="text-sm font-medium text-white mb-2">No providers configured</p>
+                    <p className="text-xs mb-3">Add a provider to receive alerts.</p>
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setEditingProvider(null);
+                        setShowNotificationModal(true);
+                      }}
+                    >
+                      <Plus className="w-4 h-4" />
+                      Add Provider
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          {/* Right Column: Templates */}
+          <div>
+            <h2 className="text-lg font-semibold text-white flex items-center gap-2 mb-4">
+              <FileText className="w-5 h-5 text-bambu-green" />
+              Message Templates
+            </h2>
+            <p className="text-sm text-bambu-gray mb-4">
+              Customize notification messages for each event.
+            </p>
+
+            {templatesLoading ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="w-6 h-6 text-bambu-green animate-spin" />
+              </div>
+            ) : notificationTemplates && notificationTemplates.length > 0 ? (
+              <div className="space-y-2">
+                {notificationTemplates.map((template) => (
+                  <Card
+                    key={template.id}
+                    className="cursor-pointer hover:border-bambu-green/50 transition-colors"
+                    onClick={() => setEditingTemplate(template)}
+                  >
+                    <CardContent className="py-2.5 px-3">
+                      <div className="flex items-center justify-between">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-white font-medium text-sm truncate">{template.name}</p>
+                          <p className="text-bambu-gray text-xs truncate mt-0.5">
+                            {template.title_template}
+                          </p>
+                        </div>
+                        <button
+                          className="p-1.5 hover:bg-bambu-dark-tertiary rounded transition-colors shrink-0 ml-2"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingTemplate(template);
+                          }}
+                        >
+                          <Edit2 className="w-4 h-4 text-bambu-gray" />
+                        </button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <Card>
+                <CardContent className="py-8">
+                  <div className="text-center text-bambu-gray">
+                    <FileText className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                    <p className="text-sm">No templates available. Restart the backend to seed default templates.</p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
         </div>
       )}
 
@@ -845,6 +908,14 @@ export function SettingsPage() {
             setShowNotificationModal(false);
             setEditingProvider(null);
           }}
+        />
+      )}
+
+      {/* Template Editor Modal */}
+      {editingTemplate && (
+        <NotificationTemplateEditor
+          template={editingTemplate}
+          onClose={() => setEditingTemplate(null)}
         />
       )}
     </div>

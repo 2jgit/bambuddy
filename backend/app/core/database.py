@@ -34,13 +34,16 @@ async def get_db() -> AsyncSession:
 
 async def init_db():
     # Import models to register them with SQLAlchemy
-    from backend.app.models import printer, archive, filament, settings, smart_plug, print_queue, notification, maintenance, kprofile_note  # noqa: F401
+    from backend.app.models import printer, archive, filament, settings, smart_plug, print_queue, notification, maintenance, kprofile_note, notification_template  # noqa: F401
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
         # Run migrations for new columns (SQLite doesn't auto-add columns)
         await run_migrations(conn)
+
+    # Seed default notification templates
+    await seed_notification_templates()
 
 
 async def run_migrations(conn):
@@ -127,3 +130,29 @@ async def run_migrations(conn):
     except Exception:
         # Column already exists
         pass
+
+
+async def seed_notification_templates():
+    """Seed default notification templates if they don't exist."""
+    from sqlalchemy import select
+    from backend.app.models.notification_template import NotificationTemplate, DEFAULT_TEMPLATES
+
+    async with async_session() as session:
+        # Check if templates already exist
+        result = await session.execute(select(NotificationTemplate).limit(1))
+        if result.scalar_one_or_none() is not None:
+            # Templates already seeded
+            return
+
+        # Insert default templates
+        for template_data in DEFAULT_TEMPLATES:
+            template = NotificationTemplate(
+                event_type=template_data["event_type"],
+                name=template_data["name"],
+                title_template=template_data["title_template"],
+                body_template=template_data["body_template"],
+                is_default=True,
+            )
+            session.add(template)
+
+        await session.commit()
