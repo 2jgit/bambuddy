@@ -1175,17 +1175,22 @@ export const api = {
     const blob = await response.blob();
     return { blob, filename };
   },
-  importBackup: async (file: File) => {
+  importBackup: async (file: File, overwrite = false) => {
     const formData = new FormData();
     formData.append('file', file);
-    const response = await fetch(`${API_BASE}/settings/restore`, {
+    const url = `${API_BASE}/settings/restore${overwrite ? '?overwrite=true' : ''}`;
+    const response = await fetch(url, {
       method: 'POST',
       body: formData,
     });
     return response.json() as Promise<{
       success: boolean;
       message: string;
-      restored?: { settings: number; notification_providers: number; smart_plugs: number };
+      restored?: Record<string, number>;
+      skipped?: Record<string, number>;
+      skipped_details?: Record<string, string[]>;
+      files_restored?: number;
+      total_skipped?: number;
     }>;
   },
   checkFfmpeg: () =>

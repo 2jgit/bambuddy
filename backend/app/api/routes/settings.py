@@ -427,9 +427,10 @@ async def export_backup(
 @router.post("/restore")
 async def import_backup(
     file: UploadFile = File(...),
+    overwrite: bool = Query(False, description="Overwrite existing data instead of skipping duplicates"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Restore data from JSON or ZIP backup. Skips duplicates."""
+    """Restore data from JSON or ZIP backup. By default skips duplicates, set overwrite=true to replace existing."""
     try:
         content = await file.read()
         base_dir = app_settings.base_dir
@@ -477,21 +478,64 @@ async def import_backup(
         "filaments": 0,
         "maintenance_types": 0,
     }
+    skipped = {
+        "settings": 0,
+        "notification_providers": 0,
+        "notification_templates": 0,
+        "smart_plugs": 0,
+        "printers": 0,
+        "filaments": 0,
+        "maintenance_types": 0,
+        "archives": 0,
+    }
+    skipped_details = {
+        "notification_providers": [],
+        "smart_plugs": [],
+        "printers": [],
+        "filaments": [],
+        "maintenance_types": [],
+        "archives": [],
+    }
 
-    # Restore settings
+    # Restore settings (always overwrites)
     if "settings" in backup:
         for key, value in backup["settings"].items():
             await set_setting(db, key, value)
             restored["settings"] += 1
 
-    # Restore notification providers (skip duplicates by name)
+    # Restore notification providers (skip or overwrite duplicates by name)
     if "notification_providers" in backup:
         for provider_data in backup["notification_providers"]:
             result = await db.execute(
                 select(NotificationProvider).where(NotificationProvider.name == provider_data["name"])
             )
             existing = result.scalar_one_or_none()
-            if not existing:
+            if existing:
+                if overwrite:
+                    # Update existing provider
+                    existing.provider_type = provider_data["provider_type"]
+                    existing.enabled = provider_data.get("enabled", True)
+                    existing.config = json.dumps(provider_data.get("config", {}))
+                    existing.on_print_start = provider_data.get("on_print_start", False)
+                    existing.on_print_complete = provider_data.get("on_print_complete", True)
+                    existing.on_print_failed = provider_data.get("on_print_failed", True)
+                    existing.on_print_stopped = provider_data.get("on_print_stopped", True)
+                    existing.on_print_progress = provider_data.get("on_print_progress", False)
+                    existing.on_printer_offline = provider_data.get("on_printer_offline", False)
+                    existing.on_printer_error = provider_data.get("on_printer_error", False)
+                    existing.on_filament_low = provider_data.get("on_filament_low", False)
+                    existing.on_maintenance_due = provider_data.get("on_maintenance_due", False)
+                    existing.quiet_hours_enabled = provider_data.get("quiet_hours_enabled", False)
+                    existing.quiet_hours_start = provider_data.get("quiet_hours_start")
+                    existing.quiet_hours_end = provider_data.get("quiet_hours_end")
+                    existing.daily_digest_enabled = provider_data.get("daily_digest_enabled", False)
+                    existing.daily_digest_time = provider_data.get("daily_digest_time")
+                    existing.printer_id = provider_data.get("printer_id")
+                    restored["notification_providers"] += 1
+                else:
+                    skipped["notification_providers"] += 1
+                    skipped_details["notification_providers"].append(provider_data["name"])
+            else:
                 provider = NotificationProvider(
                     name=provider_data["name"],
                     provider_type=provider_data["provider_type"],
@@ -542,14 +586,36 @@ async def import_backup(
                 db.add(template)
             restored["notification_templates"] += 1
 
-    # Restore smart plugs (skip duplicates by IP)
+    # Restore smart plugs (skip or overwrite duplicates by IP)
     if "smart_plugs" in backup:
         for plug_data in backup["smart_plugs"]:
             result = await db.execute(
                 select(SmartPlug).where(SmartPlug.ip_address == plug_data["ip_address"])
             )
             existing = result.scalar_one_or_none()
-            if not existing:
+            if existing:
+                if overwrite:
+                    existing.name = plug_data["name"]
+                    existing.printer_id = plug_data.get("printer_id")
+                    existing.enabled = plug_data.get("enabled", True)
+                    existing.auto_on = plug_data.get("auto_on", True)
+                    existing.auto_off = plug_data.get("auto_off", True)
+                    existing.off_delay_mode = plug_data.get("off_delay_mode", "time")
+                    existing.off_delay_minutes = plug_data.get("off_delay_minutes", 5)
+                    existing.off_temp_threshold = plug_data.get("off_temp_threshold", 70)
+                    existing.username = plug_data.get("username")
+                    existing.password = plug_data.get("password")
+                    existing.power_alert_enabled = plug_data.get("power_alert_enabled", False)
+                    existing.power_alert_high = plug_data.get("power_alert_high")
+                    existing.power_alert_low = plug_data.get("power_alert_low")
+                    existing.schedule_enabled = plug_data.get("schedule_enabled", False)
+                    existing.schedule_on_time = plug_data.get("schedule_on_time")
+                    existing.schedule_off_time = plug_data.get("schedule_off_time")
+                    restored["smart_plugs"] += 1
+                else:
+                    skipped["smart_plugs"] += 1
+                    skipped_details["smart_plugs"].append(f"{plug_data['name']} ({plug_data['ip_address']})")
+            else:
                 plug = SmartPlug(
                     name=plug_data["name"],
                     ip_address=plug_data["ip_address"],
@@ -572,14 +638,29 @@ async def import_backup(
                 db.add(plug)
                 restored["smart_plugs"] += 1
 
-    # Restore printers (skip duplicates by serial_number, requires access_code to be set manually)
+    # Restore printers (skip or overwrite duplicates by serial_number)
+    # Note: access_code is never restored for security - must be set manually
     if "printers" in backup:
         for printer_data in backup["printers"]:
             result = await db.execute(
                 select(Printer).where(Printer.serial_number == printer_data["serial_number"])
             )
             existing = result.scalar_one_or_none()
-            if not existing:
+            if existing:
+                if overwrite:
+                    existing.name = printer_data["name"]
+                    existing.ip_address = printer_data["ip_address"]
+                    existing.model = printer_data.get("model")
+                    existing.location = printer_data.get("location")
+                    existing.nozzle_count = printer_data.get("nozzle_count", 1)
+                    existing.auto_archive = printer_data.get("auto_archive", True)
+                    existing.print_hours_offset = printer_data.get("print_hours_offset", 0.0)
+                    # Don't overwrite access_code or is_active to preserve working connection
+                    restored["printers"] += 1
+                else:
+                    skipped["printers"] += 1
+                    skipped_details["printers"].append(f"{printer_data['name']} ({printer_data['serial_number']})")
+            else:
                 printer = Printer(
                     name=printer_data["name"],
                     serial_number=printer_data["serial_number"],
@@ -595,7 +676,7 @@ async def import_backup(
                 db.add(printer)
                 restored["printers"] += 1
 
-    # Restore filaments (skip duplicates by name+type+brand)
+    # Restore filaments (skip or overwrite duplicates by name+type+brand)
     if "filaments" in backup:
         for filament_data in backup["filaments"]:
             result = await db.execute(
@@ -606,7 +687,23 @@ async def import_backup(
                 )
             )
             existing = result.scalar_one_or_none()
-            if not existing:
+            if existing:
+                if overwrite:
+                    existing.color = filament_data.get("color")
+                    existing.color_hex = filament_data.get("color_hex")
+                    existing.cost_per_kg = filament_data.get("cost_per_kg", 25.0)
+                    existing.spool_weight_g = filament_data.get("spool_weight_g", 1000.0)
+                    existing.currency = filament_data.get("currency", "USD")
+                    existing.density = filament_data.get("density")
+                    existing.print_temp_min = filament_data.get("print_temp_min")
+                    existing.print_temp_max = filament_data.get("print_temp_max")
+                    existing.bed_temp_min = filament_data.get("bed_temp_min")
+                    existing.bed_temp_max = filament_data.get("bed_temp_max")
+                    restored["filaments"] += 1
+                else:
+                    skipped["filaments"] += 1
+                    skipped_details["filaments"].append(f"{filament_data.get('brand', '')} {filament_data['name']} ({filament_data['type']})")
+            else:
                 filament = Filament(
                     name=filament_data["name"],
                     type=filament_data["type"],
@@ -625,14 +722,25 @@ async def import_backup(
                 db.add(filament)
                 restored["filaments"] += 1
 
-    # Restore maintenance types (skip duplicates by name)
+    # Restore maintenance types (skip or overwrite duplicates by name)
     if "maintenance_types" in backup:
         for mt_data in backup["maintenance_types"]:
             result = await db.execute(
                 select(MaintenanceType).where(MaintenanceType.name == mt_data["name"])
             )
             existing = result.scalar_one_or_none()
-            if not existing:
+            if existing:
+                if overwrite:
+                    existing.description = mt_data.get("description")
+                    existing.default_interval_hours = mt_data.get("default_interval_hours", 100.0)
+                    existing.interval_type = mt_data.get("interval_type", "hours")
+                    existing.icon = mt_data.get("icon")
+                    # Don't overwrite is_system
+                    restored["maintenance_types"] += 1
+                else:
+                    skipped["maintenance_types"] += 1
+                    skipped_details["maintenance_types"].append(mt_data["name"])
+            else:
                 mt = MaintenanceType(
                     name=mt_data["name"],
                     description=mt_data.get("description"),
@@ -644,7 +752,7 @@ async def import_backup(
                 db.add(mt)
                 restored["maintenance_types"] += 1
 
-    # Restore archives (skip duplicates by content_hash)
+    # Restore archives (skip duplicates by content_hash - overwrite not supported for archives)
     if "archives" in backup:
         for archive_data in backup["archives"]:
             # Skip if no content_hash or already exists
@@ -655,6 +763,8 @@ async def import_backup(
                 )
                 existing = result.scalar_one_or_none()
                 if existing:
+                    skipped["archives"] += 1
+                    skipped_details["archives"].append(archive_data.get("filename", "Unknown"))
                     continue
 
             # Only restore if file exists (from ZIP extraction)
@@ -697,17 +807,32 @@ async def import_backup(
     await db.commit()
 
     # Build summary message
-    parts = []
+    restored_parts = []
     for key, count in restored.items():
         if count > 0:
-            parts.append(f"{count} {key.replace('_', ' ')}")
+            restored_parts.append(f"{count} {key.replace('_', ' ')}")
 
     if files_restored > 0:
-        parts.append(f"{files_restored} files")
+        restored_parts.append(f"{files_restored} files")
+
+    skipped_parts = []
+    total_skipped = sum(skipped.values())
+    for key, count in skipped.items():
+        if count > 0:
+            skipped_parts.append(f"{count} {key.replace('_', ' ')}")
+
+    message_parts = []
+    if restored_parts:
+        message_parts.append(f"Restored: {', '.join(restored_parts)}")
+    if skipped_parts:
+        message_parts.append(f"Skipped (already exist): {', '.join(skipped_parts)}")
 
     return {
         "success": True,
-        "message": f"Restored: {', '.join(parts)}" if parts else "Nothing to restore",
+        "message": ". ".join(message_parts) if message_parts else "Nothing to restore",
         "restored": restored,
+        "skipped": skipped,
+        "skipped_details": skipped_details,
         "files_restored": files_restored,
+        "total_skipped": total_skipped,
     }

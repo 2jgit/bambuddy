@@ -13,6 +13,7 @@ import { NotificationTemplateEditor } from '../components/NotificationTemplateEd
 import { NotificationLogViewer } from '../components/NotificationLogViewer';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { BackupModal } from '../components/BackupModal';
+import { RestoreModal } from '../components/RestoreModal';
 import { SpoolmanSettings } from '../components/SpoolmanSettings';
 import { defaultNavItems, getDefaultView, setDefaultView } from '../components/Layout';
 import { availableLanguages } from '../i18n';
@@ -31,7 +32,6 @@ export function SettingsPage() {
   const [editingTemplate, setEditingTemplate] = useState<NotificationTemplate | null>(null);
   const [showLogViewer, setShowLogViewer] = useState(false);
   const [defaultView, setDefaultViewState] = useState<string>(getDefaultView());
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<'general' | 'plugs' | 'notifications'>('general');
 
   // Confirm modal states
@@ -39,6 +39,7 @@ export function SettingsPage() {
   const [showClearStorageConfirm, setShowClearStorageConfirm] = useState(false);
   const [showBulkPlugConfirm, setShowBulkPlugConfirm] = useState<'on' | 'off' | null>(null);
   const [showBackupModal, setShowBackupModal] = useState(false);
+  const [showRestoreModal, setShowRestoreModal] = useState(false);
 
   const handleDefaultViewChange = (path: string) => {
     setDefaultViewState(path);
@@ -884,43 +885,19 @@ export function SettingsPage() {
               </div>
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-white">Restore Settings</p>
+                  <p className="text-white">Restore Backup</p>
                   <p className="text-sm text-bambu-gray">
-                    Import settings from a backup file
+                    Import settings from a backup file with duplicate handling options
                   </p>
                 </div>
-                <div>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".json,.zip"
-                    className="hidden"
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      try {
-                        const result = await api.importBackup(file);
-                        if (result.success) {
-                          showToast(result.message, 'success');
-                          queryClient.invalidateQueries();
-                        } else {
-                          showToast(result.message, 'error');
-                        }
-                      } catch (err) {
-                        showToast('Failed to restore backup', 'error');
-                      }
-                      e.target.value = '';
-                    }}
-                  />
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    <Upload className="w-4 h-4" />
-                    Import
-                  </Button>
-                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setShowRestoreModal(true)}
+                >
+                  <Upload className="w-4 h-4" />
+                  Restore
+                </Button>
               </div>
 
               <div className="border-t border-bambu-dark-tertiary pt-4">
@@ -943,9 +920,9 @@ export function SettingsPage() {
               </div>
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-white">Clear Local Storage</p>
+                  <p className="text-white">Reset UI Preferences</p>
                   <p className="text-sm text-bambu-gray">
-                    Clear browser cache (sidebar order, preferences)
+                    Reset sidebar order, theme, view modes, and layout preferences. Printers, archives, and settings are not affected.
                   </p>
                 </div>
                 <Button
@@ -954,7 +931,7 @@ export function SettingsPage() {
                   onClick={() => setShowClearStorageConfirm(true)}
                 >
                   <Trash2 className="w-4 h-4" />
-                  Clear
+                  Reset
                 </Button>
               </div>
             </CardContent>
@@ -1423,14 +1400,14 @@ export function SettingsPage() {
       {/* Confirm Modal: Clear Local Storage */}
       {showClearStorageConfirm && (
         <ConfirmModal
-          title="Clear All Local Storage"
-          message="WARNING: This will clear ALL browser data for Bambuddy including your sidebar order, preferences, and cached data. The page will reload after clearing. This action cannot be undone!"
-          confirmText="Clear Everything"
-          variant="danger"
+          title="Reset UI Preferences"
+          message="This will reset all UI preferences to defaults: sidebar order, theme, dashboard layout, view modes, and sorting preferences. Your printers, archives, and server settings will NOT be affected. The page will reload after clearing."
+          confirmText="Reset Preferences"
+          variant="default"
           onConfirm={() => {
             setShowClearStorageConfirm(false);
             localStorage.clear();
-            showToast('Local storage cleared. Refreshing...', 'success');
+            showToast('UI preferences reset. Refreshing...', 'success');
             setTimeout(() => window.location.reload(), 1000);
           }}
           onCancel={() => setShowClearStorageConfirm(false)}
@@ -1471,6 +1448,19 @@ export function SettingsPage() {
             } catch (err) {
               showToast('Failed to create backup', 'error');
             }
+          }}
+        />
+      )}
+
+      {/* Restore Modal */}
+      {showRestoreModal && (
+        <RestoreModal
+          onClose={() => setShowRestoreModal(false)}
+          onRestore={async (file, overwrite) => {
+            return await api.importBackup(file, overwrite);
+          }}
+          onSuccess={() => {
+            queryClient.invalidateQueries();
           }}
         />
       )}
