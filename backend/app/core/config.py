@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings
 import logging
 
 # Application version - single source of truth
-APP_VERSION = "0.1.5b3"
+APP_VERSION = "0.1.5b4"
 GITHUB_REPO = "maziggy/bambuddy"
 
 # Base directory for path calculations
