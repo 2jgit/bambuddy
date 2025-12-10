@@ -138,13 +138,28 @@
 </p>
 
 <p align="center">
+  <img src="docs/screenshots/maintenance_overdue.png" alt="Maintenance Overdue" width="800">
+  <br><em>Overdue maintenance alerts</em>
+</p>
+
+<p align="center">
   <img src="docs/screenshots/maintenance_settings.png" alt="Maintenance Settings" width="800">
   <br><em>Configure maintenance types and intervals</em>
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/profiles_create.png" alt="Profiles" width="800">
-  <br><em>Create and manage filament profiles</em>
+  <img src="docs/screenshots/profiles_create.png" alt="Profiles Create" width="800">
+  <br><em>Create new filament presets</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/profiles_edit.png" alt="Profiles Edit" width="800">
+  <br><em>Edit filament preset settings</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/profiles_k.png" alt="K-Profiles" width="800">
+  <br><em>Pressure advance (K-factor) profiles</em>
 </p>
 
 <p align="center">
