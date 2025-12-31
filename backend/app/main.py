@@ -1440,6 +1440,83 @@ def stop_ams_history_recording():
         logging.getLogger(__name__).info("AMS history recording stopped")
 
 
+# Printer runtime tracking
+_runtime_tracking_task: asyncio.Task | None = None
+RUNTIME_TRACKING_INTERVAL = 30  # Update every 30 seconds
+
+
+async def track_printer_runtime():
+    """Background task to track printer active runtime (RUNNING/PAUSE states)."""
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    # Wait for MQTT connections to establish on startup
+    await asyncio.sleep(15)
+
+    while True:
+        try:
+            from backend.app.models.printer import Printer
+
+            async with async_session() as db:
+                # Get all active printers
+                result = await db.execute(select(Printer).where(Printer.is_active.is_(True)))
+                printers = result.scalars().all()
+
+                now = datetime.now()
+                updated_count = 0
+
+                for printer in printers:
+                    # Get current state from printer manager
+                    state = printer_manager.get_status(printer.id)
+                    if not state or not state.connected:
+                        continue
+
+                    # Check if printer is in an active state (RUNNING or PAUSE)
+                    if state.state in ("RUNNING", "PAUSE"):
+                        # Calculate time since last update
+                        if printer.last_runtime_update:
+                            elapsed = (now - printer.last_runtime_update).total_seconds()
+                            # Sanity check: don't add more than 2x the interval (handles server restarts)
+                            if elapsed > 0 and elapsed < RUNTIME_TRACKING_INTERVAL * 2:
+                                printer.runtime_seconds += int(elapsed)
+                                updated_count += 1
+
+                        printer.last_runtime_update = now
+                    else:
+                        # Printer is idle/offline - clear last_runtime_update
+                        printer.last_runtime_update = None
+
+                if updated_count > 0:
+                    await db.commit()
+                    logger.debug(f"Updated runtime for {updated_count} printer(s)")
+
+        except asyncio.CancelledError:
+            logger.info("Runtime tracking cancelled")
+            break
+        except Exception as e:
+            logger.warning(f"Runtime tracking failed: {e}")
+
+        await asyncio.sleep(RUNTIME_TRACKING_INTERVAL)
+
+
+def start_runtime_tracking():
+    """Start the printer runtime tracking background task."""
+    global _runtime_tracking_task
+    if _runtime_tracking_task is None:
+        _runtime_tracking_task = asyncio.create_task(track_printer_runtime())
+        logging.getLogger(__name__).info("Printer runtime tracking started")
+
+
+def stop_runtime_tracking():
+    """Stop the printer runtime tracking background task."""
+    global _runtime_tracking_task
+    if _runtime_tracking_task:
+        _runtime_tracking_task.cancel()
+        _runtime_tracking_task = None
+        logging.getLogger(__name__).info("Printer runtime tracking stopped")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -1489,6 +1566,9 @@ async def lifespan(app: FastAPI):
     # Start AMS history recording
     start_ams_history_recording()
 
+    # Start printer runtime tracking
+    start_runtime_tracking()
+
     # Start anonymous telemetry (opt-out via settings)
     asyncio.create_task(start_telemetry_loop(async_session))
 
@@ -1524,6 +1604,7 @@ async def lifespan(app: FastAPI):
     smart_plug_manager.stop_scheduler()
     notification_service.stop_digest_scheduler()
     stop_ams_history_recording()
+    stop_runtime_tracking()
     printer_manager.disconnect_all()
     await close_spoolman_client()
 

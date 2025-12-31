@@ -340,7 +340,7 @@ function PrinterSection({
                 className="group"
               >
                 <div className="text-sm font-medium text-white group-hover:text-bambu-green transition-colors flex items-center gap-1">
-                  {Math.floor(overview.total_print_hours)} hours
+                  {Math.round(overview.total_print_hours)} hours
                   <Edit3 className="w-3 h-3 text-bambu-gray group-hover:text-bambu-green" />
                 </div>
                 <div className="text-xs text-bambu-gray">Total print time</div>

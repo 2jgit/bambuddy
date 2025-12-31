@@ -1,5 +1,6 @@
 from datetime import datetime
-from sqlalchemy import String, Boolean, DateTime, Float, func
+
+from sqlalchemy import Boolean, DateTime, Float, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.app.core.database import Base
@@ -19,37 +20,27 @@ class Printer(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     auto_archive: Mapped[bool] = mapped_column(Boolean, default=True)
     print_hours_offset: Mapped[float] = mapped_column(Float, default=0.0)  # Baseline hours to add
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now()
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now()
-    )
+    runtime_seconds: Mapped[int] = mapped_column(default=0)  # Accumulated active runtime (RUNNING/PAUSE states)
+    last_runtime_update: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )  # Last time runtime was updated
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
     # Relationships
-    archives: Mapped[list["PrintArchive"]] = relationship(
-        back_populates="printer", cascade="all, delete-orphan"
-    )
-    smart_plug: Mapped["SmartPlug | None"] = relationship(
-        back_populates="printer", uselist=False
-    )
-    notification_providers: Mapped[list["NotificationProvider"]] = relationship(
-        back_populates="printer"
-    )
+    archives: Mapped[list["PrintArchive"]] = relationship(back_populates="printer", cascade="all, delete-orphan")
+    smart_plug: Mapped["SmartPlug | None"] = relationship(back_populates="printer", uselist=False)
+    notification_providers: Mapped[list["NotificationProvider"]] = relationship(back_populates="printer")
     maintenance_items: Mapped[list["PrinterMaintenance"]] = relationship(
         back_populates="printer", cascade="all, delete-orphan"
     )
-    kprofile_notes: Mapped[list["KProfileNote"]] = relationship(
-        back_populates="printer", cascade="all, delete-orphan"
-    )
-    ams_history: Mapped[list["AMSSensorHistory"]] = relationship(
-        back_populates="printer", cascade="all, delete-orphan"
-    )
+    kprofile_notes: Mapped[list["KProfileNote"]] = relationship(back_populates="printer", cascade="all, delete-orphan")
+    ams_history: Mapped[list["AMSSensorHistory"]] = relationship(back_populates="printer", cascade="all, delete-orphan")
 
 
-from backend.app.models.archive import PrintArchive  # noqa: E402
 from backend.app.models.ams_history import AMSSensorHistory  # noqa: E402
+from backend.app.models.archive import PrintArchive  # noqa: E402
 from backend.app.models.kprofile_note import KProfileNote  # noqa: E402
-from backend.app.models.smart_plug import SmartPlug  # noqa: E402
-from backend.app.models.notification import NotificationProvider  # noqa: E402
 from backend.app.models.maintenance import PrinterMaintenance  # noqa: E402
+from backend.app.models.notification import NotificationProvider  # noqa: E402
+from backend.app.models.smart_plug import SmartPlug  # noqa: E402

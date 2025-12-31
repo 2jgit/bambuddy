@@ -4,12 +4,11 @@ import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.app.core.database import get_db
-from backend.app.models.archive import PrintArchive
 from backend.app.models.maintenance import MaintenanceHistory, MaintenanceType, PrinterMaintenance
 from backend.app.models.printer import Printer
 from backend.app.schemas.maintenance import (
@@ -71,23 +70,24 @@ DEFAULT_MAINTENANCE_TYPES = [
 
 
 async def get_printer_total_hours(db: AsyncSession, printer_id: int) -> float:
-    """Calculate total print hours for a printer from archives plus offset.
+    """Calculate total active hours for a printer from runtime counter plus offset.
 
-    Includes ALL prints (completed, failed, cancelled) since the printer
-    components are being used regardless of print outcome.
+    Uses the runtime_seconds counter which tracks actual machine active time
+    (RUNNING and PAUSE states), including calibration, heating, and printing.
     """
-    # Get archive hours (all prints, not just completed)
+    # Get printer runtime and offset
     result = await db.execute(
-        select(func.sum(PrintArchive.print_time_seconds)).where(PrintArchive.printer_id == printer_id)
+        select(Printer.runtime_seconds, Printer.print_hours_offset).where(Printer.id == printer_id)
     )
-    total_seconds = result.scalar() or 0
-    archive_hours = total_seconds / 3600.0
+    row = result.one_or_none()
+    if not row:
+        return 0.0
 
-    # Get printer offset
-    result = await db.execute(select(Printer.print_hours_offset).where(Printer.id == printer_id))
-    offset = result.scalar() or 0.0
+    runtime_seconds = row[0] or 0
+    offset = row[1] or 0.0
 
-    return archive_hours + offset
+    runtime_hours = runtime_seconds / 3600.0
+    return runtime_hours + offset
 
 
 async def ensure_default_types(db: AsyncSession) -> None:
@@ -564,23 +564,23 @@ async def set_printer_hours(
     total_hours: float,
     db: AsyncSession = Depends(get_db),
 ):
-    """Set the total print hours for a printer (adjusts offset to match)."""
+    """Set the total print hours for a printer (adjusts offset to match).
+
+    The offset is calculated as: offset = total_hours - runtime_hours
+    Where runtime_hours comes from the runtime_seconds counter that tracks
+    actual machine active time (RUNNING/PAUSE states).
+    """
     # Get printer
     result = await db.execute(select(Printer).where(Printer.id == printer_id))
     printer = result.scalar_one_or_none()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
 
-    # Get current archive hours (all prints, not just completed)
-    # Must match get_printer_total_hours() which includes all prints
-    result = await db.execute(
-        select(func.sum(PrintArchive.print_time_seconds)).where(PrintArchive.printer_id == printer_id)
-    )
-    total_seconds = result.scalar() or 0
-    archive_hours = total_seconds / 3600.0
+    # Get current runtime hours
+    runtime_hours = (printer.runtime_seconds or 0) / 3600.0
 
     # Calculate needed offset
-    printer.print_hours_offset = max(0, total_hours - archive_hours)
+    printer.print_hours_offset = max(0, total_hours - runtime_hours)
 
     await db.commit()
 
@@ -611,6 +611,6 @@ async def set_printer_hours(
     return {
         "printer_id": printer_id,
         "total_hours": total_hours,
-        "archive_hours": archive_hours,
+        "runtime_hours": runtime_hours,
         "offset_hours": printer.print_hours_offset,
     }

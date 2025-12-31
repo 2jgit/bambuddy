@@ -222,11 +222,11 @@ export function AddSmartPlugModal({ plug, onClose }: AddSmartPlugModalProps) {
       onClick={onClose}
     >
       <div
-        className="bg-bambu-dark-secondary rounded-xl border border-bambu-dark-tertiary w-full max-w-md"
+        className="bg-bambu-dark-secondary rounded-xl border border-bambu-dark-tertiary w-full max-w-md max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-bambu-dark-tertiary">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-bambu-dark-tertiary flex-shrink-0">
           <h2 className="text-lg font-semibold text-white">
             {isEditing ? 'Edit Smart Plug' : 'Add Smart Plug'}
           </h2>
@@ -239,7 +239,7 @@ export function AddSmartPlugModal({ plug, onClose }: AddSmartPlugModalProps) {
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto">
           {error && (
             <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-sm text-red-400">
               {error}

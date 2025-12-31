@@ -365,6 +365,16 @@ async def run_migrations(conn):
     except Exception:
         pass
 
+    # Migration: Add runtime tracking columns to printers
+    try:
+        await conn.execute(text("ALTER TABLE printers ADD COLUMN runtime_seconds INTEGER DEFAULT 0"))
+    except Exception:
+        pass
+    try:
+        await conn.execute(text("ALTER TABLE printers ADD COLUMN last_runtime_update DATETIME"))
+    except Exception:
+        pass
+
 
 async def seed_notification_templates():
     """Seed default notification templates if they don't exist."""
