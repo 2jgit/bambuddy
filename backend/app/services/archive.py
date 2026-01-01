@@ -49,14 +49,21 @@ class ThreeMFParser:
         return self.metadata
 
     def _parse_slice_info(self, zf: zipfile.ZipFile):
-        """Parse slice_info.config for print settings."""
+        """Parse slice_info.config for print settings and printable objects."""
         try:
             if "Metadata/slice_info.config" in zf.namelist():
                 content = zf.read("Metadata/slice_info.config").decode()
                 root = ET.fromstring(content)
 
-                # Get first plate's metadata
-                plate = root.find(".//plate")
+                # Get the correct plate's metadata (use plate_number if specified)
+                if self.plate_number:
+                    plate = root.find(f".//plate[@plate_idx='{self.plate_number}']")
+                    if plate is None:
+                        # Fallback to first plate if specific plate not found
+                        plate = root.find(".//plate")
+                else:
+                    plate = root.find(".//plate")
+
                 if plate is not None:
                     # Get prediction and weight from metadata elements
                     for meta in plate.findall("metadata"):
@@ -66,6 +73,24 @@ class ThreeMFParser:
                             self.metadata["print_time_seconds"] = int(value)
                         elif key == "weight" and value:
                             self.metadata["filament_used_grams"] = float(value)
+
+                    # Extract printable objects for skip object functionality
+                    # Objects are stored as <object identify_id="123" name="Part1" skipped="false" />
+                    printable_objects = {}
+                    for obj in plate.findall("object"):
+                        identify_id = obj.get("identify_id")
+                        name = obj.get("name")
+                        skipped = obj.get("skipped", "false")
+
+                        # Only include objects that are not pre-skipped
+                        if identify_id and name and skipped.lower() != "true":
+                            try:
+                                printable_objects[int(identify_id)] = name
+                            except ValueError:
+                                pass
+
+                    if printable_objects:
+                        self.metadata["printable_objects"] = printable_objects
 
                 # Get filament info from filaments ACTUALLY USED in the print
                 # slice_info has <filament id="1" type="PLA" color="#FFFFFF" used_g="100" />
@@ -313,6 +338,75 @@ class ThreeMFParser:
                 self.metadata["_thumbnail_data"] = zf.read(thumb_path)
                 self.metadata["_thumbnail_ext"] = ".png"
                 break
+
+
+def extract_printable_objects_from_3mf(
+    data: bytes, plate_number: int | None = None, include_positions: bool = False
+) -> dict[int, str] | dict[int, dict]:
+    """Extract printable objects from 3MF file bytes.
+
+    This is a lightweight function used during print start to get the list
+    of objects that can be skipped.
+
+    Args:
+        data: Raw bytes of the 3MF file
+        plate_number: Which plate was printed (1-based), or None for first plate
+        include_positions: If True, return dict with name and position info
+
+    Returns:
+        If include_positions=False: Dictionary mapping identify_id (int) to object name (str)
+        If include_positions=True: Dictionary mapping identify_id to {name, x, y} dict
+    """
+    from io import BytesIO
+
+    printable_objects: dict = {}
+
+    try:
+        with zipfile.ZipFile(BytesIO(data), "r") as zf:
+            if "Metadata/slice_info.config" not in zf.namelist():
+                return printable_objects
+
+            content = zf.read("Metadata/slice_info.config").decode()
+            root = ET.fromstring(content)
+
+            # Find the correct plate
+            if plate_number:
+                plate = root.find(f".//plate[@plate_idx='{plate_number}']")
+                if plate is None:
+                    plate = root.find(".//plate")
+            else:
+                plate = root.find(".//plate")
+
+            if plate is None:
+                return printable_objects
+
+            # Extract objects
+            for obj in plate.findall("object"):
+                identify_id = obj.get("identify_id")
+                name = obj.get("name")
+                skipped = obj.get("skipped", "false")
+
+                if identify_id and name and skipped.lower() != "true":
+                    try:
+                        obj_id = int(identify_id)
+                        if include_positions:
+                            # Try to get position from various possible attributes
+                            x = obj.get("x") or obj.get("pos_x") or obj.get("center_x")
+                            y = obj.get("y") or obj.get("pos_y") or obj.get("center_y")
+                            printable_objects[obj_id] = {
+                                "name": name,
+                                "x": float(x) if x else None,
+                                "y": float(y) if y else None,
+                            }
+                        else:
+                            printable_objects[obj_id] = name
+                    except ValueError:
+                        pass
+
+    except Exception:
+        pass
+
+    return printable_objects
 
 
 class ProjectPageParser:

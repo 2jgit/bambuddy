@@ -163,6 +163,8 @@ export interface PrinterStatus {
   mc_print_sub_stage: number;
   // Timestamp of last AMS data update (for RFID refresh detection)
   last_ams_update: number;
+  // Number of printable objects in current print (for skip objects feature)
+  printable_objects_count: number;
 }
 
 export interface PrinterCreate {
@@ -1288,6 +1290,24 @@ export const api = {
     request<{ success: boolean; message: string }>(`/printers/${printerId}/print/resume`, {
       method: 'POST',
     }),
+
+  // Skip Objects
+  getPrintableObjects: (printerId: number) =>
+    request<{
+      objects: Array<{ id: number; name: string; x: number | null; y: number | null; skipped: boolean }>;
+      total: number;
+      skipped_count: number;
+      is_printing: boolean;
+    }>(`/printers/${printerId}/print/objects`),
+
+  skipObjects: (printerId: number, objectIds: number[]) =>
+    request<{ success: boolean; message: string; skipped_objects: number[] }>(
+      `/printers/${printerId}/print/skip-objects`,
+      {
+        method: 'POST',
+        body: JSON.stringify(objectIds),
+      }
+    ),
 
   // AMS Control
   refreshAmsSlot: (printerId: number, amsId: number, slotId: number) =>

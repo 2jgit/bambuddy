@@ -10,6 +10,18 @@ All notable changes to Bambuddy will be documented in this file.
   - Pause/Resume toggle for pausing and resuming prints
   - Confirmation modals for all actions to prevent accidental clicks
   - Toast notifications for action feedback
+- **Skip objects** - Skip individual objects during a print:
+  - Skip button in print status section (top right) when printing with 2+ objects
+  - Modal shows preview image with object ID markers overlaid
+  - Large ID badges to easily match with printer display
+  - Click to skip any object - it will not be printed
+  - Skipped objects shown with strikethrough styling and red badge on button
+  - Skip only available after layer 1 (printer limitation) with warning message
+  - Objects automatically loaded when print starts from 3MF metadata
+  - Parses skipped objects from printer MQTT for state persistence
+  - Light and dark theme support
+  - Close with ESC key or click outside
+  - Requires "Exclude Objects" option enabled in slicer
 - **AMS slot RFID re-read** - Re-read RFID data for individual AMS slots:
   - Menu button (⋮) appears on hover over AMS slots
   - "Re-read RFID" option triggers filament info refresh
@@ -19,10 +31,12 @@ All notable changes to Bambuddy will be documented in this file.
 
 ### Changed
 - **Temperature cards layout** - Refactored printer card layout with slimmer temperature displays to make room for control buttons
+- **Cover image availability** - Print cover image now shown in PAUSE/PAUSED states (not just RUNNING) for skip objects modal
 
 ### Tests
 - Added integration tests for printer control endpoints (stop, pause, resume)
 - Added integration tests for AMS slot refresh endpoint
+- Added integration tests for skip objects endpoints (get objects, skip objects, objects with positions)
 
 ## [0.1.6b4] - 2026-01-01
 

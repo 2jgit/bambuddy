@@ -13,6 +13,7 @@ import {
   Box,
   HardDrive,
   AlertTriangle,
+  AlertCircle,
   Terminal,
   Power,
   PowerOff,
@@ -31,7 +32,22 @@ import {
   Square,
   Pause,
   Play,
+  X,
+  Monitor,
 } from 'lucide-react';
+
+// Custom Skip Objects icon - arrow jumping over boxes
+const SkipObjectsIcon = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    {/* Three boxes at the bottom */}
+    <rect x="2" y="15" width="5" height="5" rx="0.5" />
+    <rect x="9.5" y="15" width="5" height="5" rx="0.5" fill="currentColor" opacity="0.3" />
+    <rect x="17" y="15" width="5" height="5" rx="0.5" />
+    {/* Curved arrow jumping over first box */}
+    <path d="M4 12 C4 6, 14 6, 14 12" />
+    <polyline points="12,10 14,12 12,14" />
+  </svg>
+);
 import { useNavigate } from 'react-router-dom';
 import { api, discoveryApi } from '../api/client';
 import type { Printer, PrinterCreate, AMSUnit, DiscoveredPrinter } from '../api/client';
@@ -680,6 +696,7 @@ function PrinterCard({
   const [showStopConfirm, setShowStopConfirm] = useState(false);
   const [showPauseConfirm, setShowPauseConfirm] = useState(false);
   const [showResumeConfirm, setShowResumeConfirm] = useState(false);
+  const [showSkipObjectsModal, setShowSkipObjectsModal] = useState(false);
   const [amsHistoryModal, setAmsHistoryModal] = useState<{
     amsId: number;
     amsLabel: string;
@@ -862,6 +879,26 @@ function PrinterCard({
       queryClient.invalidateQueries({ queryKey: ['printerStatus', printer.id] });
     },
     onError: (error: Error) => showToast(error.message || 'Failed to resume print', 'error'),
+  });
+
+  // Query for printable objects (for skip functionality)
+  // Fetch when printing with 2+ objects OR when modal is open
+  const isPrintingWithObjects = (status?.state === 'RUNNING' || status?.state === 'PAUSE' || status?.state === 'PAUSED') && (status?.printable_objects_count ?? 0) >= 2;
+  const { data: objectsData, refetch: refetchObjects } = useQuery({
+    queryKey: ['printableObjects', printer.id],
+    queryFn: () => api.getPrintableObjects(printer.id),
+    enabled: showSkipObjectsModal || isPrintingWithObjects,
+    refetchInterval: showSkipObjectsModal ? 5000 : (isPrintingWithObjects ? 30000 : false), // 5s when modal open, 30s otherwise
+  });
+
+  // Skip objects mutation
+  const skipObjectsMutation = useMutation({
+    mutationFn: (objectIds: number[]) => api.skipObjects(printer.id, objectIds),
+    onSuccess: (data) => {
+      showToast(data.message || 'Objects skipped');
+      refetchObjects();
+    },
+    onError: (error: Error) => showToast(error.message || 'Failed to skip objects', 'error'),
   });
 
   // State for tracking which AMS slot is being refreshed
@@ -1243,7 +1280,32 @@ function PrinterCard({
               /* Expanded: Full status section */
               <>
                 {/* Current Print or Idle Placeholder */}
-                <div className="mb-4 p-3 bg-bambu-dark rounded-lg">
+                <div className="mb-4 p-3 bg-bambu-dark rounded-lg relative">
+                  {/* Skip Objects button - top right corner, always visible */}
+                  <button
+                    onClick={() => setShowSkipObjectsModal(true)}
+                    disabled={!(status.state === 'RUNNING' || status.state === 'PAUSE' || status.state === 'PAUSED') || (status.printable_objects_count ?? 0) < 2}
+                    className={`absolute top-2 right-2 p-1.5 rounded transition-colors z-10 ${
+                      (status.state === 'RUNNING' || status.state === 'PAUSE' || status.state === 'PAUSED') && (status.printable_objects_count ?? 0) >= 2
+                        ? 'text-bambu-gray hover:text-white hover:bg-white/10'
+                        : 'text-bambu-gray/30 cursor-not-allowed'
+                    }`}
+                    title={
+                      !(status.state === 'RUNNING' || status.state === 'PAUSE' || status.state === 'PAUSED')
+                        ? "Skip objects (only while printing)"
+                        : (status.printable_objects_count ?? 0) >= 2
+                          ? "Skip objects"
+                          : "Skip objects (requires 2+ objects)"
+                    }
+                  >
+                    <SkipObjectsIcon className="w-4 h-4" />
+                    {/* Badge showing skipped count */}
+                    {objectsData && objectsData.skipped_count > 0 && (
+                      <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-bold bg-red-500 text-white rounded-full">
+                        {objectsData.skipped_count}
+                      </span>
+                    )}
+                  </button>
                   <div className="flex gap-3">
                     {/* Cover Image */}
                     <CoverImage
@@ -2073,6 +2135,203 @@ function PrinterCard({
           }}
           onCancel={() => setShowResumeConfirm(false)}
         />
+      )}
+
+      {/* Skip Objects Popup */}
+      {showSkipObjectsModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          onClick={() => setShowSkipObjectsModal(false)}
+          onKeyDown={(e) => e.key === 'Escape' && setShowSkipObjectsModal(false)}
+          tabIndex={-1}
+          ref={(el) => el?.focus()}
+        >
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/50 z-0" />
+          {/* Modal */}
+          <div
+            className="relative z-10 bg-white dark:bg-bambu-dark border border-gray-200 dark:border-bambu-dark-tertiary rounded-xl shadow-2xl w-[560px] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-bambu-dark-tertiary bg-gray-50 dark:bg-bambu-dark">
+            <div className="flex items-center gap-2">
+              <SkipObjectsIcon className="w-4 h-4 text-bambu-green" />
+              <span className="text-sm font-medium text-gray-900 dark:text-white">Skip Objects</span>
+            </div>
+            <button
+              onClick={() => setShowSkipObjectsModal(false)}
+              className="p-1 text-gray-500 dark:text-bambu-gray hover:text-gray-900 dark:hover:text-white rounded transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {!objectsData ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-5 h-5 animate-spin text-bambu-gray" />
+            </div>
+          ) : objectsData.objects.length === 0 ? (
+            <div className="text-center py-8 px-4 text-bambu-gray">
+              <p className="text-sm">No objects found</p>
+              <p className="text-xs mt-1 opacity-70">Objects are loaded when a print starts</p>
+            </div>
+          ) : (
+            <div className="flex flex-col">
+              {/* Info Banner */}
+              <div className="flex items-center gap-3 px-4 py-2.5 bg-blue-50 dark:bg-blue-500/10 border-b border-gray-200 dark:border-bambu-dark-tertiary">
+                <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center">
+                  <Monitor className="w-4 h-4 text-blue-500 dark:text-blue-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-blue-600 dark:text-blue-300">Match IDs with your printer display</p>
+                  <p className="text-[10px] text-blue-500/70 dark:text-blue-300/60">The printer screen shows object IDs on the build plate</p>
+                </div>
+                <div className="flex-shrink-0 text-xs text-gray-500 dark:text-bambu-gray">
+                  {objectsData.skipped_count}/{objectsData.total} skipped
+                </div>
+              </div>
+
+              {/* Layer Warning */}
+              {(status?.layer_num ?? 0) <= 1 && (
+                <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-500/10 border-b border-gray-200 dark:border-bambu-dark-tertiary">
+                  <AlertCircle className="w-4 h-4 text-amber-500 dark:text-amber-400 flex-shrink-0" />
+                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                    Wait for layer 2+ to skip objects (currently layer {status?.layer_num ?? 0})
+                  </p>
+                </div>
+              )}
+
+              {/* Content: Image + List side by side */}
+              <div className="flex">
+                {/* Left: Preview Image with object markers */}
+                <div className="w-52 flex-shrink-0 p-4 border-r border-gray-200 dark:border-bambu-dark-tertiary bg-gray-50 dark:bg-bambu-dark-secondary">
+                  <div className="relative">
+                    {status?.cover_url ? (
+                      <img
+                        src={status.cover_url}
+                        alt="Print preview"
+                        className="w-full aspect-square object-contain rounded-lg bg-gray-100 dark:bg-bambu-dark"
+                      />
+                    ) : (
+                      <div className="w-full aspect-square rounded-lg bg-gray-100 dark:bg-bambu-dark flex items-center justify-center">
+                        <Box className="w-8 h-8 text-gray-300 dark:text-bambu-gray/30" />
+                      </div>
+                    )}
+                    {/* Object ID markers overlay - positioned based on object data */}
+                    {objectsData.objects.length > 0 && (
+                      <div className="absolute inset-0 pointer-events-none">
+                        {objectsData.objects.map((obj, idx) => {
+                          // Build plate is typically 256x256mm for X1C
+                          const buildPlateSize = 256;
+                          let x: number, y: number;
+
+                          // Use position data if available, otherwise fall back to grid
+                          if (obj.x != null && obj.y != null) {
+                            // Convert mm position to percentage (0-100)
+                            // Clamp to valid range and add padding
+                            x = Math.max(10, Math.min(90, (obj.x / buildPlateSize) * 100));
+                            y = Math.max(10, Math.min(90, (obj.y / buildPlateSize) * 100));
+                          } else {
+                            // Fallback: arrange in a grid pattern over the build plate area
+                            const cols = Math.ceil(Math.sqrt(objectsData.objects.length));
+                            const row = Math.floor(idx / cols);
+                            const col = idx % cols;
+                            const rows = Math.ceil(objectsData.objects.length / cols);
+                            x = 15 + (col * (70 / cols)) + (35 / cols);
+                            y = 15 + (row * (70 / rows)) + (35 / rows);
+                          }
+
+                          return (
+                            <div
+                              key={obj.id}
+                              className={`absolute flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold shadow-lg ${
+                                obj.skipped
+                                  ? 'bg-red-500 text-white line-through'
+                                  : 'bg-bambu-green text-black'
+                              }`}
+                              style={{
+                                left: `${x}%`,
+                                top: `${y}%`,
+                                transform: 'translate(-50%, -50%)'
+                              }}
+                              title={obj.name}
+                            >
+                              {obj.id}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {/* Object count overlay */}
+                    <div className="absolute bottom-2 right-2 px-2 py-1 bg-white/90 dark:bg-black/80 rounded text-[10px] text-gray-700 dark:text-white shadow-sm">
+                      {objectsData.objects.filter(o => !o.skipped).length} active
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right: Object List with prominent IDs */}
+                <div className="flex-1 min-w-0">
+                  {objectsData.objects.map((obj) => (
+                    <div
+                      key={obj.id}
+                      className={`
+                        flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-bambu-dark-tertiary/50 last:border-0
+                        ${obj.skipped ? 'bg-red-50 dark:bg-red-500/10' : 'hover:bg-gray-50 dark:hover:bg-bambu-dark/50'}
+                      `}
+                    >
+                      {/* Large prominent ID badge */}
+                      <div className={`
+                        w-12 h-12 flex-shrink-0 rounded-lg flex flex-col items-center justify-center
+                        ${obj.skipped
+                          ? 'bg-red-100 dark:bg-red-500/20 border border-red-300 dark:border-red-500/40'
+                          : 'bg-green-100 dark:bg-bambu-green/20 border border-green-300 dark:border-bambu-green/40'}
+                      `}>
+                        <span className={`text-lg font-mono font-bold ${obj.skipped ? 'text-red-500 dark:text-red-400' : 'text-green-600 dark:text-bambu-green'}`}>
+                          {obj.id}
+                        </span>
+                        <span className={`text-[8px] uppercase tracking-wider ${obj.skipped ? 'text-red-400/60' : 'text-green-500/60 dark:text-bambu-green/60'}`}>
+                          ID
+                        </span>
+                      </div>
+
+                      {/* Object name and status */}
+                      <div className="flex-1 min-w-0">
+                        <span className={`block text-sm truncate ${obj.skipped ? 'text-red-500 dark:text-red-400 line-through' : 'text-gray-900 dark:text-white'}`}>
+                          {obj.name}
+                        </span>
+                        {obj.skipped && (
+                          <span className="text-[10px] text-red-400/60">Will be skipped</span>
+                        )}
+                      </div>
+
+                      {/* Skip button */}
+                      {!obj.skipped ? (
+                        <button
+                          onClick={() => skipObjectsMutation.mutate([obj.id])}
+                          disabled={skipObjectsMutation.isPending || (status?.layer_num ?? 0) <= 1}
+                          className={`px-4 py-2 text-xs font-medium rounded-lg transition-colors ${
+                            (status?.layer_num ?? 0) <= 1
+                              ? 'bg-gray-100 dark:bg-bambu-dark text-gray-400 dark:text-bambu-gray/50 cursor-not-allowed'
+                              : 'bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-500/30 border border-red-300 dark:border-red-500/30'
+                          }`}
+                          title={(status?.layer_num ?? 0) <= 1 ? 'Wait for layer 2+' : 'Skip this object'}
+                        >
+                          Skip
+                        </button>
+                      ) : (
+                        <span className="px-4 py-2 text-xs text-red-500 dark:text-red-400/70 bg-red-100 dark:bg-red-500/10 rounded-lg">
+                          Skipped
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+          </div>
+        </div>
       )}
 
       {/* HMS Error Modal */}

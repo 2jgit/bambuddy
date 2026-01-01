@@ -359,6 +359,7 @@ async def get_printer_status(printer_id: int, db: AsyncSession = Depends(get_db)
         ams_status_sub=state.ams_status_sub,
         mc_print_sub_stage=state.mc_print_sub_stage,
         last_ams_update=state.last_ams_update,
+        printable_objects_count=len(state.printable_objects),
     )
 
 
@@ -1073,6 +1074,101 @@ async def resume_print(printer_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(500, "Failed to resume print")
 
     return {"success": True, "message": "Print resume command sent"}
+
+
+@router.get("/{printer_id}/print/objects")
+async def get_printable_objects(printer_id: int, db: AsyncSession = Depends(get_db)):
+    """Get the list of printable objects for the current print.
+
+    Returns a list of objects with id, name, position (if available), and skip status.
+    Objects that have already been skipped are marked in the skipped_objects list.
+    """
+    result = await db.execute(select(Printer).where(Printer.id == printer_id))
+    printer = result.scalar_one_or_none()
+    if not printer:
+        raise HTTPException(404, "Printer not found")
+
+    client = printer_manager.get_client(printer_id)
+    if not client:
+        raise HTTPException(400, "Printer not connected")
+
+    # Return objects with their skip status and position data
+    objects = []
+    for obj_id, obj_data in client.state.printable_objects.items():
+        # Handle both old format (string name) and new format (dict with name, x, y)
+        if isinstance(obj_data, dict):
+            obj_entry = {
+                "id": obj_id,
+                "name": obj_data.get("name", f"Object {obj_id}"),
+                "x": obj_data.get("x"),
+                "y": obj_data.get("y"),
+                "skipped": obj_id in client.state.skipped_objects,
+            }
+        else:
+            # Legacy format: obj_data is just the name string
+            obj_entry = {
+                "id": obj_id,
+                "name": obj_data,
+                "x": None,
+                "y": None,
+                "skipped": obj_id in client.state.skipped_objects,
+            }
+        objects.append(obj_entry)
+
+    return {
+        "objects": objects,
+        "total": len(objects),
+        "skipped_count": len(client.state.skipped_objects),
+        "is_printing": client.state.state in ("RUNNING", "PAUSE"),
+    }
+
+
+@router.post("/{printer_id}/print/skip-objects")
+async def skip_objects(
+    printer_id: int,
+    object_ids: list[int],
+    db: AsyncSession = Depends(get_db),
+):
+    """Skip specific objects during the current print.
+
+    Args:
+        object_ids: List of object identify_id values to skip
+    """
+    result = await db.execute(select(Printer).where(Printer.id == printer_id))
+    printer = result.scalar_one_or_none()
+    if not printer:
+        raise HTTPException(404, "Printer not found")
+
+    client = printer_manager.get_client(printer_id)
+    if not client:
+        raise HTTPException(400, "Printer not connected")
+
+    if not object_ids:
+        raise HTTPException(400, "No object IDs provided")
+
+    # Validate object IDs exist in printable_objects
+    invalid_ids = [oid for oid in object_ids if oid not in client.state.printable_objects]
+    if invalid_ids:
+        raise HTTPException(400, f"Invalid object IDs: {invalid_ids}")
+
+    success = client.skip_objects(object_ids)
+    if not success:
+        raise HTTPException(500, "Failed to skip objects")
+
+    # Get names of skipped objects for response (handle both old and new format)
+    skipped_names = []
+    for oid in object_ids:
+        obj_data = client.state.printable_objects.get(oid, str(oid))
+        if isinstance(obj_data, dict):
+            skipped_names.append(obj_data.get("name", str(oid)))
+        else:
+            skipped_names.append(obj_data)
+
+    return {
+        "success": True,
+        "message": f"Skipped {len(object_ids)} object(s): {', '.join(skipped_names)}",
+        "skipped_objects": object_ids,
+    }
 
 
 # =============================================================================

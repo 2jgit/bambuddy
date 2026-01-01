@@ -56,6 +56,7 @@
 - Real-time printer status via WebSocket
 - Live camera streaming (MJPEG) & snapshots
 - Printer control (stop, pause, resume)
+- Skip objects during print
 - AMS slot RFID re-read
 - HMS error monitoring with history
 - Print success rates & trends

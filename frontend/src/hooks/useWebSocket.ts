@@ -188,7 +188,18 @@ export function useWebSocket() {
         }
         break;
 
+      case 'print_start':
+        // Refetch printer status immediately when print starts to get printable_objects_count
+        if (message.printer_id !== undefined) {
+          queryClient.invalidateQueries({ queryKey: ['printerStatus', message.printer_id] });
+        }
+        break;
+
       case 'print_complete':
+        // Refetch printer status when print completes to clear printable_objects_count
+        if (message.printer_id !== undefined) {
+          queryClient.invalidateQueries({ queryKey: ['printerStatus', message.printer_id] });
+        }
         debouncedInvalidate('archives');
         debouncedInvalidate('archiveStats');
         break;
