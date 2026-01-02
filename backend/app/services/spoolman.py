@@ -595,7 +595,7 @@ class SpoolmanClient:
             filament_id=filament["id"],
             remaining_weight=remaining,
             location=location,
-            comment=f"Auto-created from {printer_name} AMS",
+            comment="Created by Bambuddy",
             extra={"tag": json.dumps(tray.tray_uuid)},
         )
 
