@@ -1,6 +1,10 @@
 services:
   bambuddy:
+    image: ghcr.io/maziggy/bambuddy:latest
     build: .
+    # Usage:
+    #   docker compose up -d          → pulls pre-built image from ghcr.io
+    #   docker compose up -d --build  → builds locally from source
     container_name: bambuddy
     # Network mode options:
     # - Default (bridge): Works for basic usage, but printer discovery and

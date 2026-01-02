@@ -2,9 +2,14 @@
 
 All notable changes to Bambuddy will be documented in this file.
 
-## [0.1.6b5] - 2026-01-01
+## [0.1.6b5] - 2026-01-02
 
 ### Added
+- **Pre-built Docker images** - Ready-to-use container images on GitHub Container Registry:
+  - Pull directly: `docker pull ghcr.io/maziggy/bambuddy:latest`
+  - Multi-architecture support: `linux/amd64` and `linux/arm64` (Raspberry Pi 4/5)
+  - No build required - just `docker compose up -d`
+  - Automatic architecture detection - Docker pulls the right image for your system
 - **Spoolman Link Spool feature** - Manually link existing Spoolman spools to AMS trays:
   - Hover over any AMS slot to see "Link to Spoolman" button (when Spoolman enabled)
   - Select from list of unlinked Spoolman spools
