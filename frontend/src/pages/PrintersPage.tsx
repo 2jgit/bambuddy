@@ -13,6 +13,7 @@ import {
   Box,
   HardDrive,
   AlertTriangle,
+  AlertCircle,
   Terminal,
   Power,
   PowerOff,
@@ -28,7 +29,25 @@ import {
   Video,
   Search,
   Loader2,
+  Square,
+  Pause,
+  Play,
+  X,
+  Monitor,
 } from 'lucide-react';
+
+// Custom Skip Objects icon - arrow jumping over boxes
+const SkipObjectsIcon = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    {/* Three boxes at the bottom */}
+    <rect x="2" y="15" width="5" height="5" rx="0.5" />
+    <rect x="9.5" y="15" width="5" height="5" rx="0.5" fill="currentColor" opacity="0.3" />
+    <rect x="17" y="15" width="5" height="5" rx="0.5" />
+    {/* Curved arrow jumping over first box */}
+    <path d="M4 12 C4 6, 14 6, 14 12" />
+    <polyline points="12,10 14,12 12,14" />
+  </svg>
+);
 import { useNavigate } from 'react-router-dom';
 import { api, discoveryApi } from '../api/client';
 import type { Printer, PrinterCreate, AMSUnit, DiscoveredPrinter } from '../api/client';
@@ -41,79 +60,269 @@ import { HMSErrorModal, filterKnownHMSErrors } from '../components/HMSErrorModal
 import { PrinterQueueWidget } from '../components/PrinterQueueWidget';
 import { AMSHistoryModal } from '../components/AMSHistoryModal';
 import { FilamentHoverCard, EmptySlotHoverCard } from '../components/FilamentHoverCard';
+import { LinkSpoolModal } from '../components/LinkSpoolModal';
+import { useToast } from '../contexts/ToastContext';
 
-// Bambu Lab color code mapping (color suffix from tray_id_name -> color name)
-// tray_id_name format: "A00-Y2" where Y2 is the color code
-const BAMBU_COLOR_CODES: Record<string, string> = {
-  // Yellows
-  'Y0': 'Yellow',
-  'Y1': 'Savana Yellow',
-  'Y2': 'Sunflower Yellow',
-  'Y3': 'Lemon Yellow',
-  // Oranges
-  'O0': 'Orange',
-  'O1': 'Mandarin Orange',
-  'O2': 'Coral Orange',
-  // Reds
-  'R0': 'Red',
-  'R1': 'Scarlet Red',
-  'R2': 'Magenta',
-  'R3': 'Sakura Pink',
-  'R4': 'Raspberry Red',
-  // Pinks
-  'P0': 'Pink',
-  'P1': 'Sakura Pink',
-  // Purples
-  'V0': 'Purple',
-  'V1': 'Violet',
-  'V2': 'Lilac Purple',
-  // Blues
-  'B0': 'Blue',
-  'B1': 'Sky Blue',
-  'B2': 'Navy Blue',
-  'B3': 'Ice Blue',
-  'B4': 'Cyan',
-  // Greens
-  'G0': 'Green',
-  'G1': 'Grass Green',
-  'G2': 'Lime Green',
-  'G3': 'Mint Green',
-  'G4': 'Olive Green',
-  'G5': 'Jungle Green',
-  'G6': 'Bambu Green',
-  // Browns
-  'N0': 'Brown',
-  'N1': 'Peanut Brown',
-  'N2': 'Coffee Brown',
-  'N3': 'Caramel Brown',
-  // Grays
-  'A0': 'Gray',
-  'A1': 'Charcoal Gray',
-  'A2': 'Silver Gray',
-  'A3': 'Titan Gray',
-  // Blacks
-  'K0': 'Black',
-  'K1': 'Black',
-  // Whites
-  'W0': 'White',
-  'W1': 'Jade White',
-  'W2': 'Ivory White',
-  // Special
-  'T0': 'Transparent',
-  'C0': 'Marble',
-  'X0': 'Bronze',
-  'X1': 'Gold',
-  'X2': 'Silver',
+// Complete Bambu Lab filament color mapping by tray_id_name
+// Source: https://github.com/queengooborg/Bambu-Lab-RFID-Library
+const BAMBU_FILAMENT_COLORS: Record<string, string> = {
+  // PLA Basic (A00)
+  'A00-W1': 'Jade White',
+  'A00-P0': 'Beige',
+  'A00-D2': 'Light Gray',
+  'A00-Y0': 'Yellow',
+  'A00-Y2': 'Sunflower Yellow',
+  'A00-A1': 'Pumpkin Orange',
+  'A00-A0': 'Orange',
+  'A00-Y4': 'Gold',
+  'A00-G3': 'Bright Green',
+  'A00-G1': 'Bambu Green',
+  'A00-G2': 'Mistletoe Green',
+  'A00-R3': 'Hot Pink',
+  'A00-P6': 'Magenta',
+  'A00-R0': 'Red',
+  'A00-R2': 'Maroon Red',
+  'A00-P5': 'Purple',
+  'A00-P2': 'Indigo Purple',
+  'A00-B5': 'Turquoise',
+  'A00-B8': 'Cyan',
+  'A00-B3': 'Cobalt Blue',
+  'A00-N0': 'Brown',
+  'A00-N1': 'Cocoa Brown',
+  'A00-Y3': 'Bronze',
+  'A00-D0': 'Gray',
+  'A00-D1': 'Silver',
+  'A00-B1': 'Blue Grey',
+  'A00-D3': 'Dark Gray',
+  'A00-K0': 'Black',
+  // PLA Basic Gradient (A00-M*)
+  'A00-M3': 'Pink Citrus',
+  'A00-M6': 'Dusk Glare',
+  'A00-M0': 'Arctic Whisper',
+  'A00-M1': 'Solar Breeze',
+  'A00-M5': 'Blueberry Bubblegum',
+  'A00-M4': 'Mint Lime',
+  'A00-M2': 'Ocean to Meadow',
+  'A00-M7': 'Cotton Candy Cloud',
+  // PLA Lite (A18)
+  'A18-K0': 'Black',
+  'A18-D0': 'Gray',
+  'A18-W0': 'White',
+  'A18-R0': 'Red',
+  'A18-Y0': 'Yellow',
+  'A18-B0': 'Cyan',
+  'A18-B1': 'Blue',
+  'A18-P0': 'Matte Beige',
+  // PLA Matte (A01)
+  'A01-W2': 'Ivory White',
+  'A01-W3': 'Bone White',
+  'A01-Y2': 'Lemon Yellow',
+  'A01-A2': 'Mandarin Orange',
+  'A01-P3': 'Sakura Pink',
+  'A01-P4': 'Lilac Purple',
+  'A01-R3': 'Plum',
+  'A01-R1': 'Scarlet Red',
+  'A01-R4': 'Dark Red',
+  'A01-G0': 'Apple Green',
+  'A01-G1': 'Grass Green',
+  'A01-G7': 'Dark Green',
+  'A01-B4': 'Ice Blue',
+  'A01-B0': 'Sky Blue',
+  'A01-B3': 'Marine Blue',
+  'A01-B6': 'Dark Blue',
+  'A01-Y3': 'Desert Tan',
+  'A01-N1': 'Latte Brown',
+  'A01-N3': 'Caramel',
+  'A01-R2': 'Terracotta',
+  'A01-N2': 'Dark Brown',
+  'A01-N0': 'Dark Chocolate',
+  'A01-D3': 'Ash Gray',
+  'A01-D0': 'Nardo Gray',
+  'A01-K1': 'Charcoal',
+  // PLA Glow (A12)
+  'A12-G0': 'Green',
+  'A12-R0': 'Pink',
+  'A12-A0': 'Orange',
+  'A12-Y0': 'Yellow',
+  'A12-B0': 'Blue',
+  // PLA Marble (A07)
+  'A07-R5': 'Red Granite',
+  'A07-D4': 'White Marble',
+  // PLA Aero (A11)
+  'A11-W0': 'White',
+  'A11-K0': 'Black',
+  // PLA Sparkle (A08)
+  'A08-G3': 'Alpine Green Sparkle',
+  'A08-D5': 'Slate Gray Sparkle',
+  'A08-B7': 'Royal Purple Sparkle',
+  'A08-R2': 'Crimson Red Sparkle',
+  'A08-K2': 'Onyx Black Sparkle',
+  'A08-Y1': 'Classic Gold Sparkle',
+  // PLA Metal (A02)
+  'A02-B2': 'Cobalt Blue Metallic',
+  'A02-G2': 'Oxide Green Metallic',
+  'A02-Y1': 'Iridium Gold Metallic',
+  'A02-D2': 'Iron Gray Metallic',
+  // PLA Translucent (A17)
+  'A17-B1': 'Blue',
+  'A17-A0': 'Orange',
+  'A17-P0': 'Purple',
+  // PLA Silk+ (A06)
+  'A06-Y1': 'Gold',
+  'A06-D0': 'Titan Gray',
+  'A06-D1': 'Silver',
+  'A06-W0': 'White',
+  'A06-R0': 'Candy Red',
+  'A06-G0': 'Candy Green',
+  'A06-G1': 'Mint',
+  'A06-B1': 'Blue',
+  'A06-B0': 'Baby Blue',
+  'A06-P0': 'Purple',
+  'A06-R1': 'Rose Gold',
+  'A06-R2': 'Pink',
+  'A06-Y0': 'Champagne',
+  // PLA Silk Multi-Color (A05)
+  'A05-M8': 'Dawn Radiance',
+  'A05-M4': 'Aurora Purple',
+  'A05-M1': 'South Beach',
+  'A05-T3': 'Neon City',
+  'A05-T2': 'Midnight Blaze',
+  'A05-T1': 'Gilded Rose',
+  'A05-T4': 'Blue Hawaii',
+  'A05-T5': 'Velvet Eclipse',
+  // PLA Galaxy (A15)
+  'A15-B0': 'Purple',
+  'A15-G0': 'Green',
+  'A15-G1': 'Nebulae',
+  'A15-R0': 'Brown',
+  // PLA Wood (A16)
+  'A16-K0': 'Black Walnut',
+  'A16-R0': 'Rosewood',
+  'A16-N0': 'Clay Brown',
+  'A16-G0': 'Classic Birch',
+  'A16-W0': 'White Oak',
+  'A16-Y0': 'Ochre Yellow',
+  // PLA-CF (A50)
+  'A50-D6': 'Lava Gray',
+  'A50-K0': 'Black',
+  'A50-B6': 'Royal Blue',
+  // PLA Tough+ (A10)
+  'A10-W0': 'White',
+  'A10-D0': 'Gray',
+  // PLA Tough (A09)
+  'A09-B5': 'Lavender Blue',
+  'A09-B4': 'Light Blue',
+  'A09-A0': 'Orange',
+  'A09-D1': 'Silver',
+  'A09-R3': 'Vermilion Red',
+  'A09-Y0': 'Yellow',
+  // PETG HF (G02)
+  'G02-K0': 'Black',
+  'G02-W0': 'White',
+  'G02-R0': 'Red',
+  'G02-D0': 'Gray',
+  'G02-D1': 'Dark Gray',
+  'G02-Y1': 'Cream',
+  'G02-Y0': 'Yellow',
+  'G02-A0': 'Orange',
+  'G02-N1': 'Peanut Brown',
+  'G02-G1': 'Lime Green',
+  'G02-G0': 'Green',
+  'G02-G2': 'Forest Green',
+  'G02-B1': 'Lake Blue',
+  'G02-B0': 'Blue',
+  // PETG Translucent (G01)
+  'G01-G1': 'Translucent Teal',
+  'G01-B0': 'Translucent Light Blue',
+  'G01-C0': 'Clear',
+  'G01-D0': 'Translucent Gray',
+  'G01-G0': 'Translucent Olive',
+  'G01-N0': 'Translucent Brown',
+  'G01-A0': 'Translucent Orange',
+  'G01-P1': 'Translucent Pink',
+  'G01-P0': 'Translucent Purple',
+  // PETG-CF (G50)
+  'G50-P7': 'Violet Purple',
+  'G50-K0': 'Black',
+  // ABS (B00)
+  'B00-D1': 'Silver',
+  'B00-K0': 'Black',
+  'B00-W0': 'White',
+  'B00-G6': 'Bambu Green',
+  'B00-G7': 'Olive',
+  'B00-Y1': 'Tangerine Yellow',
+  'B00-A0': 'Orange',
+  'B00-R0': 'Red',
+  'B00-B4': 'Azure',
+  'B00-B0': 'Blue',
+  'B00-B6': 'Navy Blue',
+  // ABS-GF (B50)
+  'B50-A0': 'Orange',
+  'B50-K0': 'Black',
+  // ASA (B01)
+  'B01-W0': 'White',
+  'B01-K0': 'Black',
+  'B01-D0': 'Gray',
+  // ASA Aero (B02)
+  'B02-W0': 'White',
+  // PC (C00)
+  'C00-C1': 'Transparent',
+  'C00-C0': 'Clear Black',
+  'C00-K0': 'Black',
+  'C00-W0': 'White',
+  // PC FR (C01)
+  'C01-K0': 'Black',
+  // TPU for AMS (U02)
+  'U02-B0': 'Blue',
+  'U02-D0': 'Gray',
+  'U02-K0': 'Black',
+  // PAHT-CF (N04)
+  'N04-K0': 'Black',
+  // PA6-GF (N08)
+  'N08-K0': 'Black',
+  // Support for PLA/PETG (S02, S05)
+  'S02-W0': 'Nature',
+  'S02-W1': 'White',
+  'S05-C0': 'Black',
+  // Support for ABS (S06)
+  'S06-W0': 'White',
+  // Support for PA/PET (S03)
+  'S03-G1': 'Green',
+  // PVA (S04)
+  'S04-Y0': 'Clear',
+};
+
+// Fallback color codes for unknown material prefixes
+const BAMBU_COLOR_CODE_FALLBACK: Record<string, string> = {
+  'W0': 'White', 'W1': 'Jade White', 'W2': 'Ivory White', 'W3': 'Bone White',
+  'Y0': 'Yellow', 'Y1': 'Gold', 'Y2': 'Sunflower Yellow', 'Y3': 'Bronze', 'Y4': 'Gold',
+  'A0': 'Orange', 'A1': 'Pumpkin Orange', 'A2': 'Mandarin Orange',
+  'R0': 'Red', 'R1': 'Scarlet Red', 'R2': 'Maroon Red', 'R3': 'Hot Pink', 'R4': 'Dark Red', 'R5': 'Red Granite',
+  'P0': 'Beige', 'P1': 'Pink', 'P2': 'Indigo Purple', 'P3': 'Sakura Pink', 'P4': 'Lilac Purple', 'P5': 'Purple', 'P6': 'Magenta', 'P7': 'Violet Purple',
+  'B0': 'Blue', 'B1': 'Blue Grey', 'B2': 'Cobalt Blue', 'B3': 'Cobalt Blue', 'B4': 'Ice Blue', 'B5': 'Turquoise', 'B6': 'Navy Blue', 'B7': 'Royal Purple', 'B8': 'Cyan',
+  'G0': 'Green', 'G1': 'Grass Green', 'G2': 'Mistletoe Green', 'G3': 'Bright Green', 'G6': 'Bambu Green', 'G7': 'Dark Green',
+  'N0': 'Brown', 'N1': 'Peanut Brown', 'N2': 'Dark Brown', 'N3': 'Caramel',
+  'D0': 'Gray', 'D1': 'Silver', 'D2': 'Light Gray', 'D3': 'Dark Gray', 'D4': 'White Marble', 'D5': 'Slate Gray', 'D6': 'Lava Gray',
+  'K0': 'Black', 'K1': 'Charcoal', 'K2': 'Onyx Black',
+  'C0': 'Clear Black', 'C1': 'Transparent',
+  'M0': 'Arctic Whisper', 'M1': 'Solar Breeze', 'M2': 'Ocean to Meadow', 'M3': 'Pink Citrus', 'M4': 'Aurora Purple', 'M5': 'Blueberry Bubblegum', 'M6': 'Dusk Glare', 'M7': 'Cotton Candy Cloud', 'M8': 'Dawn Radiance',
+  'T1': 'Gilded Rose', 'T2': 'Midnight Blaze', 'T3': 'Neon City', 'T4': 'Blue Hawaii', 'T5': 'Velvet Eclipse',
 };
 
 // Get color name from Bambu Lab tray_id_name (e.g., "A00-Y2" -> "Sunflower Yellow")
 function getBambuColorName(trayIdName: string | null | undefined): string | null {
   if (!trayIdName) return null;
-  // Extract color code after the dash (e.g., "A00-Y2" -> "Y2")
+
+  // First try exact match with full tray_id_name
+  if (BAMBU_FILAMENT_COLORS[trayIdName]) {
+    return BAMBU_FILAMENT_COLORS[trayIdName];
+  }
+
+  // Fall back to color code suffix lookup for unknown material prefixes
   const parts = trayIdName.split('-');
   if (parts.length < 2) return null;
   const colorCode = parts[1];
-  return BAMBU_COLOR_CODES[colorCode] || null;
+  return BAMBU_COLOR_CODE_FALLBACK[colorCode] || null;
 }
 
 // Convert hex color to basic color name
@@ -649,6 +858,7 @@ function PrinterCard({
   maintenanceInfo,
   viewMode = 'expanded',
   amsThresholds,
+  spoolmanEnabled = false,
 }: {
   printer: Printer;
   hideIfDisconnected?: boolean;
@@ -660,9 +870,11 @@ function PrinterCard({
     tempGood: number;
     tempFair: number;
   };
+  spoolmanEnabled?: boolean;
 }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [showMenu, setShowMenu] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteArchives, setDeleteArchives] = useState(true);
@@ -672,10 +884,18 @@ function PrinterCard({
   const [showPowerOnConfirm, setShowPowerOnConfirm] = useState(false);
   const [showPowerOffConfirm, setShowPowerOffConfirm] = useState(false);
   const [showHMSModal, setShowHMSModal] = useState(false);
+  const [showStopConfirm, setShowStopConfirm] = useState(false);
+  const [showPauseConfirm, setShowPauseConfirm] = useState(false);
+  const [showResumeConfirm, setShowResumeConfirm] = useState(false);
+  const [showSkipObjectsModal, setShowSkipObjectsModal] = useState(false);
   const [amsHistoryModal, setAmsHistoryModal] = useState<{
     amsId: number;
     amsLabel: string;
     mode: 'humidity' | 'temperature';
+  } | null>(null);
+  const [linkSpoolModal, setLinkSpoolModal] = useState<{
+    trayUuid: string;
+    trayInfo: { type: string; color: string; location: string };
   } | null>(null);
 
   const { data: status } = useQuery({
@@ -827,6 +1047,147 @@ function PrinterCard({
       queryClient.invalidateQueries({ queryKey: ['smart-plugs'] });
     },
   });
+
+  // Print control mutations
+  const stopPrintMutation = useMutation({
+    mutationFn: () => api.stopPrint(printer.id),
+    onSuccess: () => {
+      showToast('Print stopped');
+      queryClient.invalidateQueries({ queryKey: ['printerStatus', printer.id] });
+    },
+    onError: (error: Error) => showToast(error.message || 'Failed to stop print', 'error'),
+  });
+
+  const pausePrintMutation = useMutation({
+    mutationFn: () => api.pausePrint(printer.id),
+    onSuccess: () => {
+      showToast('Print paused');
+      queryClient.invalidateQueries({ queryKey: ['printerStatus', printer.id] });
+    },
+    onError: (error: Error) => showToast(error.message || 'Failed to pause print', 'error'),
+  });
+
+  const resumePrintMutation = useMutation({
+    mutationFn: () => api.resumePrint(printer.id),
+    onSuccess: () => {
+      showToast('Print resumed');
+      queryClient.invalidateQueries({ queryKey: ['printerStatus', printer.id] });
+    },
+    onError: (error: Error) => showToast(error.message || 'Failed to resume print', 'error'),
+  });
+
+  // Query for printable objects (for skip functionality)
+  // Fetch when printing with 2+ objects OR when modal is open
+  const isPrintingWithObjects = (status?.state === 'RUNNING' || status?.state === 'PAUSE' || status?.state === 'PAUSED') && (status?.printable_objects_count ?? 0) >= 2;
+  const { data: objectsData, refetch: refetchObjects } = useQuery({
+    queryKey: ['printableObjects', printer.id],
+    queryFn: () => api.getPrintableObjects(printer.id),
+    enabled: showSkipObjectsModal || isPrintingWithObjects,
+    refetchInterval: showSkipObjectsModal ? 5000 : (isPrintingWithObjects ? 30000 : false), // 5s when modal open, 30s otherwise
+  });
+
+  // Skip objects mutation
+  const skipObjectsMutation = useMutation({
+    mutationFn: (objectIds: number[]) => api.skipObjects(printer.id, objectIds),
+    onSuccess: (data) => {
+      showToast(data.message || 'Objects skipped');
+      refetchObjects();
+    },
+    onError: (error: Error) => showToast(error.message || 'Failed to skip objects', 'error'),
+  });
+
+  // State for tracking which AMS slot is being refreshed
+  const [refreshingSlot, setRefreshingSlot] = useState<{ amsId: number; slotId: number } | null>(null);
+  // Track if we've seen the printer enter "busy" state (ams_status_main !== 0)
+  const seenBusyStateRef = useRef<boolean>(false);
+  // Fallback timeout ref
+  const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Minimum display time passed
+  const minTimePassedRef = useRef<boolean>(false);
+
+  // AMS slot refresh mutation
+  const refreshAmsSlotMutation = useMutation({
+    mutationFn: ({ amsId, slotId }: { amsId: number; slotId: number }) =>
+      api.refreshAmsSlot(printer.id, amsId, slotId),
+    onMutate: ({ amsId, slotId }) => {
+      // Clear any existing timeout
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+      }
+      // Reset state
+      seenBusyStateRef.current = false;
+      minTimePassedRef.current = false;
+      setRefreshingSlot({ amsId, slotId });
+      // Minimum display time (2 seconds)
+      setTimeout(() => {
+        minTimePassedRef.current = true;
+      }, 2000);
+      // Fallback timeout (30 seconds max)
+      refreshTimeoutRef.current = setTimeout(() => {
+        setRefreshingSlot(null);
+      }, 30000);
+    },
+    onSuccess: (data) => {
+      showToast(data.message || 'RFID re-read initiated');
+    },
+    onError: (error: Error) => {
+      showToast(error.message || 'Failed to re-read RFID', 'error');
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+      }
+      setRefreshingSlot(null);
+    },
+  });
+
+  // Watch ams_status_main to detect when RFID read completes
+  // ams_status_main: 0=idle, 2=rfid_identifying
+  const deferredClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!refreshingSlot) return;
+
+    const amsStatus = status?.ams_status_main ?? 0;
+
+    // Track when we see non-idle state (printer is working)
+    if (amsStatus !== 0) {
+      seenBusyStateRef.current = true;
+      // Cancel any deferred clear since we're back to busy
+      if (deferredClearRef.current) {
+        clearTimeout(deferredClearRef.current);
+        deferredClearRef.current = null;
+      }
+    }
+
+    // When we've seen busy and now idle, clear (with min time check)
+    if (seenBusyStateRef.current && amsStatus === 0) {
+      if (minTimePassedRef.current) {
+        // Min time passed - clear now
+        if (refreshTimeoutRef.current) {
+          clearTimeout(refreshTimeoutRef.current);
+        }
+        setRefreshingSlot(null);
+      } else {
+        // Schedule clear after min time (2 seconds from start)
+        if (!deferredClearRef.current) {
+          deferredClearRef.current = setTimeout(() => {
+            if (refreshTimeoutRef.current) {
+              clearTimeout(refreshTimeoutRef.current);
+            }
+            setRefreshingSlot(null);
+          }, 2000);
+        }
+      }
+    }
+
+    return () => {
+      if (deferredClearRef.current) {
+        clearTimeout(deferredClearRef.current);
+      }
+    };
+  }, [status?.ams_status_main, refreshingSlot]);
+
+  // State for AMS slot menu
+  const [amsSlotMenu, setAmsSlotMenu] = useState<{ amsId: number; slotId: number } | null>(null);
 
   if (shouldHide) {
     return null;
@@ -1114,7 +1475,32 @@ function PrinterCard({
               /* Expanded: Full status section */
               <>
                 {/* Current Print or Idle Placeholder */}
-                <div className="mb-4 p-3 bg-bambu-dark rounded-lg">
+                <div className="mb-4 p-3 bg-bambu-dark rounded-lg relative">
+                  {/* Skip Objects button - top right corner, always visible */}
+                  <button
+                    onClick={() => setShowSkipObjectsModal(true)}
+                    disabled={!(status.state === 'RUNNING' || status.state === 'PAUSE' || status.state === 'PAUSED') || (status.printable_objects_count ?? 0) < 2}
+                    className={`absolute top-2 right-2 p-1.5 rounded transition-colors z-10 ${
+                      (status.state === 'RUNNING' || status.state === 'PAUSE' || status.state === 'PAUSED') && (status.printable_objects_count ?? 0) >= 2
+                        ? 'text-bambu-gray hover:text-white hover:bg-white/10'
+                        : 'text-bambu-gray/30 cursor-not-allowed'
+                    }`}
+                    title={
+                      !(status.state === 'RUNNING' || status.state === 'PAUSE' || status.state === 'PAUSED')
+                        ? "Skip objects (only while printing)"
+                        : (status.printable_objects_count ?? 0) >= 2
+                          ? "Skip objects"
+                          : "Skip objects (requires 2+ objects)"
+                    }
+                  >
+                    <SkipObjectsIcon className="w-4 h-4" />
+                    {/* Badge showing skipped count */}
+                    {objectsData && objectsData.skipped_count > 0 && (
+                      <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-bold bg-red-500 text-white rounded-full">
+                        {objectsData.skipped_count}
+                      </span>
+                    )}
+                  </button>
                   <div className="flex gap-3">
                     {/* Cover Image */}
                     <CoverImage
@@ -1195,50 +1581,102 @@ function PrinterCard({
               </>
             )}
 
-            {/* Temperatures */}
+            {/* Temperatures + Print Controls */}
             {status.temperatures && viewMode === 'expanded' && (() => {
               // Use actual heater states from MQTT stream
               const nozzleHeating = status.temperatures.nozzle_heating || status.temperatures.nozzle_2_heating || false;
               const bedHeating = status.temperatures.bed_heating || false;
               const chamberHeating = status.temperatures.chamber_heating || false;
 
+              // Determine print state for control buttons
+              const isRunning = status.state === 'RUNNING';
+              const isPaused = status.state === 'PAUSED' || status.state === 'PAUSE';
+              const isPrinting = isRunning || isPaused;
+              const isControlBusy = stopPrintMutation.isPending || pausePrintMutation.isPending || resumePrintMutation.isPending;
+
               return (
-                <div className="grid grid-cols-3 gap-3">
-                  {/* Nozzle temp - combined for dual nozzle */}
-                  <div className="text-center p-2 bg-bambu-dark rounded-lg">
-                    <HeaterThermometer className="w-4 h-4 mx-auto mb-1" color="text-orange-400" isHeating={nozzleHeating} />
-                    {status.temperatures.nozzle_2 !== undefined ? (
-                      <>
-                        <p className="text-xs text-bambu-gray">Left / Right</p>
-                        <p className="text-sm text-white">
-                          {Math.round(status.temperatures.nozzle || 0)}°C / {Math.round(status.temperatures.nozzle_2 || 0)}°C
-                        </p>
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-xs text-bambu-gray">Nozzle</p>
-                        <p className="text-sm text-white">
-                          {Math.round(status.temperatures.nozzle || 0)}°C
-                        </p>
-                      </>
-                    )}
-                  </div>
-                  <div className="text-center p-2 bg-bambu-dark rounded-lg">
-                    <HeaterThermometer className="w-4 h-4 mx-auto mb-1" color="text-blue-400" isHeating={bedHeating} />
-                    <p className="text-xs text-bambu-gray">Bed</p>
-                    <p className="text-sm text-white">
-                      {Math.round(status.temperatures.bed || 0)}°C
-                    </p>
-                  </div>
-                  {status.temperatures.chamber !== undefined && (
+                <div className="flex gap-3">
+                  {/* Temperature cards */}
+                  <div className="flex-1 grid grid-cols-3 gap-2">
+                    {/* Nozzle temp - combined for dual nozzle */}
                     <div className="text-center p-2 bg-bambu-dark rounded-lg">
-                      <HeaterThermometer className="w-4 h-4 mx-auto mb-1" color="text-green-400" isHeating={chamberHeating} />
-                      <p className="text-xs text-bambu-gray">Chamber</p>
-                      <p className="text-sm text-white">
-                        {Math.round(status.temperatures.chamber || 0)}°C
+                      <HeaterThermometer className="w-4 h-4 mx-auto mb-1" color="text-orange-400" isHeating={nozzleHeating} />
+                      {status.temperatures.nozzle_2 !== undefined ? (
+                        <>
+                          <p className="text-[10px] text-bambu-gray">L / R</p>
+                          <p className="text-xs text-white">
+                            {Math.round(status.temperatures.nozzle || 0)}° / {Math.round(status.temperatures.nozzle_2 || 0)}°
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-[10px] text-bambu-gray">Nozzle</p>
+                          <p className="text-xs text-white">
+                            {Math.round(status.temperatures.nozzle || 0)}°C
+                          </p>
+                        </>
+                      )}
+                    </div>
+                    <div className="text-center p-2 bg-bambu-dark rounded-lg">
+                      <HeaterThermometer className="w-4 h-4 mx-auto mb-1" color="text-blue-400" isHeating={bedHeating} />
+                      <p className="text-[10px] text-bambu-gray">Bed</p>
+                      <p className="text-xs text-white">
+                        {Math.round(status.temperatures.bed || 0)}°C
                       </p>
                     </div>
-                  )}
+                    {status.temperatures.chamber !== undefined ? (
+                      <div className="text-center p-2 bg-bambu-dark rounded-lg">
+                        <HeaterThermometer className="w-4 h-4 mx-auto mb-1" color="text-green-400" isHeating={chamberHeating} />
+                        <p className="text-[10px] text-bambu-gray">Chamber</p>
+                        <p className="text-xs text-white">
+                          {Math.round(status.temperatures.chamber || 0)}°C
+                        </p>
+                      </div>
+                    ) : (
+                      <div /> /* Empty placeholder to maintain grid */
+                    )}
+                  </div>
+
+                  {/* Print control buttons */}
+                  <div className="flex flex-col justify-center gap-1.5 w-20">
+                    {/* Stop button - visible when printing/paused */}
+                    <button
+                      onClick={() => setShowStopConfirm(true)}
+                      disabled={!isPrinting || isControlBusy}
+                      className={`
+                        flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium
+                        transition-colors
+                        ${isPrinting
+                          ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
+                          : 'bg-bambu-dark text-bambu-gray/50 cursor-not-allowed'
+                        }
+                      `}
+                      title="Stop print"
+                    >
+                      <Square className="w-3 h-3" />
+                      Stop
+                    </button>
+
+                    {/* Pause/Resume button */}
+                    <button
+                      onClick={() => isPaused ? setShowResumeConfirm(true) : setShowPauseConfirm(true)}
+                      disabled={!isPrinting || isControlBusy}
+                      className={`
+                        flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium
+                        transition-colors
+                        ${isPrinting
+                          ? isPaused
+                            ? 'bg-bambu-green/20 text-bambu-green hover:bg-bambu-green/30'
+                            : 'bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30'
+                          : 'bg-bambu-dark text-bambu-gray/50 cursor-not-allowed'
+                        }
+                      `}
+                      title={isPaused ? 'Resume print' : 'Pause print'}
+                    >
+                      {isPaused ? <Play className="w-3 h-3" /> : <Pause className="w-3 h-3" />}
+                      {isPaused ? 'Resume' : 'Pause'}
+                    </button>
+                  </div>
                 </div>
               );
             })()}
@@ -1338,11 +1776,17 @@ function PrinterCard({
                                   colorHex: tray.tray_color || null,
                                   kFactor: formatKValue(tray.k),
                                   fillLevel: hasFillLevel ? tray.remain : null,
+                                  trayUuid: tray.tray_uuid || null,
                                 } : null;
 
-                                const slotContent = (
+                                // Check if this specific slot is being refreshed
+                                const isRefreshing = refreshingSlot?.amsId === ams.id &&
+                                  refreshingSlot?.slotId === slotIdx;
+
+                                // Slot visual content (goes inside hover card)
+                                const slotVisual = (
                                   <div
-                                    className={`bg-bambu-dark-tertiary rounded p-1 text-center cursor-default ${isEmpty ? 'opacity-50' : ''} ${isActive ? 'ring-2 ring-bambu-green ring-offset-1 ring-offset-bambu-dark' : ''}`}
+                                    className={`bg-bambu-dark-tertiary rounded p-1 text-center ${isEmpty ? 'opacity-50' : ''} ${isActive ? 'ring-2 ring-bambu-green ring-offset-1 ring-offset-bambu-dark' : ''}`}
                                   >
                                     <div
                                       className="w-3.5 h-3.5 rounded-full mx-auto mb-0.5 border-2"
@@ -1372,14 +1816,75 @@ function PrinterCard({
                                   </div>
                                 );
 
-                                return filamentData ? (
-                                  <FilamentHoverCard key={slotIdx} data={filamentData}>
-                                    {slotContent}
-                                  </FilamentHoverCard>
-                                ) : (
-                                  <EmptySlotHoverCard key={slotIdx}>
-                                    {slotContent}
-                                  </EmptySlotHoverCard>
+                                // Wrapper with menu button, dropdown, and loading overlay (outside hover card)
+                                return (
+                                  <div key={slotIdx} className="relative group">
+                                    {/* Loading overlay during RFID re-read */}
+                                    {isRefreshing && (
+                                      <div className="absolute inset-0 bg-bambu-dark-tertiary/80 rounded flex items-center justify-center z-20">
+                                        <RefreshCw className="w-4 h-4 text-bambu-green animate-spin" />
+                                      </div>
+                                    )}
+                                    {/* Menu button - appears on hover, hidden when printer busy */}
+                                    {status?.state !== 'RUNNING' && (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setAmsSlotMenu(
+                                            amsSlotMenu?.amsId === ams.id && amsSlotMenu?.slotId === slotIdx
+                                              ? null
+                                              : { amsId: ams.id, slotId: slotIdx }
+                                          );
+                                        }}
+                                        className="absolute -top-1 -right-1 w-4 h-4 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10 hover:bg-bambu-dark-tertiary"
+                                        title="Slot options"
+                                      >
+                                        <MoreVertical className="w-2.5 h-2.5 text-bambu-gray" />
+                                      </button>
+                                    )}
+                                    {/* Dropdown menu */}
+                                    {status?.state !== 'RUNNING' && amsSlotMenu?.amsId === ams.id && amsSlotMenu?.slotId === slotIdx && (
+                                      <div className="absolute top-full left-0 mt-1 z-50 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg shadow-xl py-1 min-w-[120px]">
+                                        <button
+                                          className="w-full px-3 py-1.5 text-left text-xs text-white hover:bg-bambu-dark-tertiary flex items-center gap-2"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            refreshAmsSlotMutation.mutate({ amsId: ams.id, slotId: slotIdx });
+                                            setAmsSlotMenu(null);
+                                          }}
+                                          disabled={isRefreshing}
+                                        >
+                                          <RefreshCw className={`w-3 h-3 ${isRefreshing ? 'animate-spin' : ''}`} />
+                                          Re-read RFID
+                                        </button>
+                                      </div>
+                                    )}
+                                    {/* Hover card wraps only the visual content */}
+                                    {filamentData ? (
+                                      <FilamentHoverCard
+                                        data={filamentData}
+                                        spoolman={{
+                                          enabled: spoolmanEnabled,
+                                          onLinkSpool: spoolmanEnabled && filamentData.trayUuid ? (uuid) => {
+                                            setLinkSpoolModal({
+                                              trayUuid: uuid,
+                                              trayInfo: {
+                                                type: filamentData.profile,
+                                                color: filamentData.colorHex || '',
+                                                location: `${getAmsLabel(ams.id, ams.tray.length)} Slot ${slotIdx + 1}`,
+                                              },
+                                            });
+                                          } : undefined,
+                                        }}
+                                      >
+                                        {slotVisual}
+                                      </FilamentHoverCard>
+                                    ) : (
+                                      <EmptySlotHoverCard>
+                                        {slotVisual}
+                                      </EmptySlotHoverCard>
+                                    )}
+                                  </div>
                                 );
                               })}
                             </div>
@@ -1417,11 +1922,18 @@ function PrinterCard({
                           colorHex: tray.tray_color || null,
                           kFactor: formatKValue(tray.k),
                           fillLevel: hasFillLevel ? tray.remain : null,
+                          trayUuid: tray.tray_uuid || null,
                         } : null;
 
-                        const slotContent = (
+                        const htSlotId = tray?.id ?? 0;
+                        // Check if this specific slot is being refreshed
+                        const isHtRefreshing = refreshingSlot?.amsId === ams.id &&
+                          refreshingSlot?.slotId === htSlotId;
+
+                        // Slot visual content (goes inside hover card)
+                        const slotVisual = (
                           <div
-                            className={`bg-bambu-dark-tertiary rounded p-1 text-center cursor-default ${isEmpty ? 'opacity-50' : ''} ${isActive ? 'ring-2 ring-bambu-green ring-offset-1 ring-offset-bambu-dark' : ''}`}
+                            className={`bg-bambu-dark-tertiary rounded p-1 text-center ${isEmpty ? 'opacity-50' : ''} ${isActive ? 'ring-2 ring-bambu-green ring-offset-1 ring-offset-bambu-dark' : ''}`}
                           >
                             <div
                               className="w-3.5 h-3.5 rounded-full mx-auto mb-0.5 border-2"
@@ -1464,16 +1976,74 @@ function PrinterCard({
                             </div>
                             {/* Row 2: Slot (left) + Stats (right stacked) */}
                             <div className="flex gap-1.5">
-                              {/* Slot - takes remaining width */}
-                              {filamentData ? (
-                                <FilamentHoverCard data={filamentData} className="flex-1">
-                                  {slotContent}
-                                </FilamentHoverCard>
-                              ) : (
-                                <EmptySlotHoverCard className="flex-1">
-                                  {slotContent}
-                                </EmptySlotHoverCard>
-                              )}
+                              {/* Slot wrapper with menu button, dropdown, and loading overlay */}
+                              <div className="relative group flex-1">
+                                {/* Loading overlay during RFID re-read */}
+                                {isHtRefreshing && (
+                                  <div className="absolute inset-0 bg-bambu-dark-tertiary/80 rounded flex items-center justify-center z-20">
+                                    <RefreshCw className="w-4 h-4 text-bambu-green animate-spin" />
+                                  </div>
+                                )}
+                                {/* Menu button - appears on hover, hidden when printer busy */}
+                                {status?.state !== 'RUNNING' && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setAmsSlotMenu(
+                                        amsSlotMenu?.amsId === ams.id && amsSlotMenu?.slotId === htSlotId
+                                          ? null
+                                          : { amsId: ams.id, slotId: htSlotId }
+                                      );
+                                    }}
+                                    className="absolute -top-1 -right-1 w-4 h-4 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10 hover:bg-bambu-dark-tertiary"
+                                    title="Slot options"
+                                  >
+                                    <MoreVertical className="w-2.5 h-2.5 text-bambu-gray" />
+                                  </button>
+                                )}
+                                {/* Dropdown menu */}
+                                {status?.state !== 'RUNNING' && amsSlotMenu?.amsId === ams.id && amsSlotMenu?.slotId === htSlotId && (
+                                  <div className="absolute top-full left-0 mt-1 z-50 bg-bambu-dark-secondary border border-bambu-dark-tertiary rounded-lg shadow-xl py-1 min-w-[120px]">
+                                    <button
+                                      className="w-full px-3 py-1.5 text-left text-xs text-white hover:bg-bambu-dark-tertiary flex items-center gap-2"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        refreshAmsSlotMutation.mutate({ amsId: ams.id, slotId: htSlotId });
+                                        setAmsSlotMenu(null);
+                                      }}
+                                      disabled={isHtRefreshing}
+                                    >
+                                      <RefreshCw className={`w-3 h-3 ${isHtRefreshing ? 'animate-spin' : ''}`} />
+                                      Re-read RFID
+                                    </button>
+                                  </div>
+                                )}
+                                {/* Hover card wraps only the visual content */}
+                                {filamentData ? (
+                                  <FilamentHoverCard
+                                    data={filamentData}
+                                    spoolman={{
+                                      enabled: spoolmanEnabled,
+                                      onLinkSpool: spoolmanEnabled && filamentData.trayUuid ? (uuid) => {
+                                        setLinkSpoolModal({
+                                          trayUuid: uuid,
+                                          trayInfo: {
+                                            type: filamentData.profile,
+                                            color: filamentData.colorHex || '',
+                                            location: getAmsLabel(ams.id, ams.tray.length),
+                                          },
+                                        });
+                                      } : undefined,
+                                    }}
+                                  >
+                                    {slotVisual}
+                                  </FilamentHoverCard>
+                                ) : (
+                                  <EmptySlotHoverCard>
+                                    {slotVisual}
+                                  </EmptySlotHoverCard>
+                                )}
+                              </div>
                               {/* Stats stacked vertically: Temp on top, Humidity below */}
                               {(ams.humidity != null || ams.temp != null) && (
                                 <div className="flex flex-col justify-center gap-1 shrink-0">
@@ -1525,6 +2095,7 @@ function PrinterCard({
                           colorHex: extTray.tray_color || null,
                           kFactor: formatKValue(extTray.k),
                           fillLevel: null, // External spool has unknown fill level
+                          trayUuid: extTray.tray_uuid || null,
                         };
 
                         const extSlotContent = (
@@ -1553,7 +2124,22 @@ function PrinterCard({
                               <span className="text-[10px] text-white font-medium">External</span>
                             </div>
                             {/* Row 2: Slot (full width since no stats) */}
-                            <FilamentHoverCard data={extFilamentData}>
+                            <FilamentHoverCard
+                              data={extFilamentData}
+                              spoolman={{
+                                enabled: spoolmanEnabled,
+                                onLinkSpool: spoolmanEnabled && extFilamentData.trayUuid ? (uuid) => {
+                                  setLinkSpoolModal({
+                                    trayUuid: uuid,
+                                    trayInfo: {
+                                      type: extFilamentData.profile,
+                                      color: extFilamentData.colorHex || '',
+                                      location: 'External Spool',
+                                    },
+                                  });
+                                } : undefined,
+                              }}
+                            >
                               {extSlotContent}
                             </FilamentHoverCard>
                           </div>
@@ -1749,6 +2335,249 @@ function PrinterCard({
         />
       )}
 
+      {/* Stop Print Confirmation */}
+      {showStopConfirm && (
+        <ConfirmModal
+          title="Stop Print"
+          message={`Are you sure you want to stop the current print on "${printer.name}"? This will cancel the print job.`}
+          confirmText="Stop Print"
+          variant="danger"
+          onConfirm={() => {
+            stopPrintMutation.mutate();
+            setShowStopConfirm(false);
+          }}
+          onCancel={() => setShowStopConfirm(false)}
+        />
+      )}
+
+      {/* Pause Print Confirmation */}
+      {showPauseConfirm && (
+        <ConfirmModal
+          title="Pause Print"
+          message={`Are you sure you want to pause the current print on "${printer.name}"?`}
+          confirmText="Pause Print"
+          variant="default"
+          onConfirm={() => {
+            pausePrintMutation.mutate();
+            setShowPauseConfirm(false);
+          }}
+          onCancel={() => setShowPauseConfirm(false)}
+        />
+      )}
+
+      {/* Resume Print Confirmation */}
+      {showResumeConfirm && (
+        <ConfirmModal
+          title="Resume Print"
+          message={`Are you sure you want to resume the print on "${printer.name}"?`}
+          confirmText="Resume Print"
+          variant="default"
+          onConfirm={() => {
+            resumePrintMutation.mutate();
+            setShowResumeConfirm(false);
+          }}
+          onCancel={() => setShowResumeConfirm(false)}
+        />
+      )}
+
+      {/* Skip Objects Popup */}
+      {showSkipObjectsModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          onClick={() => setShowSkipObjectsModal(false)}
+          onKeyDown={(e) => e.key === 'Escape' && setShowSkipObjectsModal(false)}
+          tabIndex={-1}
+          ref={(el) => el?.focus()}
+        >
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/50 z-0" />
+          {/* Modal */}
+          <div
+            className="relative z-10 bg-white dark:bg-bambu-dark border border-gray-200 dark:border-bambu-dark-tertiary rounded-xl shadow-2xl w-[560px] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-bambu-dark-tertiary bg-gray-50 dark:bg-bambu-dark">
+            <div className="flex items-center gap-2">
+              <SkipObjectsIcon className="w-4 h-4 text-bambu-green" />
+              <span className="text-sm font-medium text-gray-900 dark:text-white">Skip Objects</span>
+            </div>
+            <button
+              onClick={() => setShowSkipObjectsModal(false)}
+              className="p-1 text-gray-500 dark:text-bambu-gray hover:text-gray-900 dark:hover:text-white rounded transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {!objectsData ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-5 h-5 animate-spin text-bambu-gray" />
+            </div>
+          ) : objectsData.objects.length === 0 ? (
+            <div className="text-center py-8 px-4 text-bambu-gray">
+              <p className="text-sm">No objects found</p>
+              <p className="text-xs mt-1 opacity-70">Objects are loaded when a print starts</p>
+            </div>
+          ) : (
+            <div className="flex flex-col">
+              {/* Info Banner */}
+              <div className="flex items-center gap-3 px-4 py-2.5 bg-blue-50 dark:bg-blue-500/10 border-b border-gray-200 dark:border-bambu-dark-tertiary">
+                <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center">
+                  <Monitor className="w-4 h-4 text-blue-500 dark:text-blue-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-blue-600 dark:text-blue-300">Match IDs with your printer display</p>
+                  <p className="text-[10px] text-blue-500/70 dark:text-blue-300/60">The printer screen shows object IDs on the build plate</p>
+                </div>
+                <div className="flex-shrink-0 text-xs text-gray-500 dark:text-bambu-gray">
+                  {objectsData.skipped_count}/{objectsData.total} skipped
+                </div>
+              </div>
+
+              {/* Layer Warning */}
+              {(status?.layer_num ?? 0) <= 1 && (
+                <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-500/10 border-b border-gray-200 dark:border-bambu-dark-tertiary">
+                  <AlertCircle className="w-4 h-4 text-amber-500 dark:text-amber-400 flex-shrink-0" />
+                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                    Wait for layer 2+ to skip objects (currently layer {status?.layer_num ?? 0})
+                  </p>
+                </div>
+              )}
+
+              {/* Content: Image + List side by side */}
+              <div className="flex">
+                {/* Left: Preview Image with object markers */}
+                <div className="w-52 flex-shrink-0 p-4 border-r border-gray-200 dark:border-bambu-dark-tertiary bg-gray-50 dark:bg-bambu-dark-secondary">
+                  <div className="relative">
+                    {status?.cover_url ? (
+                      <img
+                        src={`${status.cover_url}?view=top`}
+                        alt="Print preview"
+                        className="w-full aspect-square object-contain rounded-lg bg-gray-900 dark:bg-gray-900 border border-gray-300 dark:border-gray-600"
+                      />
+                    ) : (
+                      <div className="w-full aspect-square rounded-lg bg-gray-100 dark:bg-bambu-dark flex items-center justify-center">
+                        <Box className="w-8 h-8 text-gray-300 dark:text-bambu-gray/30" />
+                      </div>
+                    )}
+                    {/* Object ID markers overlay - positioned based on object data */}
+                    {objectsData.objects.length > 0 && (
+                      <div className="absolute inset-0 pointer-events-none">
+                        {objectsData.objects.map((obj, idx) => {
+                          // Build plate is typically 256x256mm for X1C
+                          const buildPlateSize = 256;
+                          let x: number, y: number;
+
+                          // Use position data if available, otherwise fall back to grid
+                          if (obj.x != null && obj.y != null) {
+                            // Convert mm position to percentage (0-100)
+                            // Clamp to valid range and add padding
+                            // Y axis is inverted: 3D printing Y goes back, image Y goes down
+                            x = Math.max(10, Math.min(90, (obj.x / buildPlateSize) * 100));
+                            y = Math.max(10, Math.min(90, 100 - (obj.y / buildPlateSize) * 100));
+                          } else {
+                            // Fallback: arrange in a grid pattern over the build plate area
+                            const cols = Math.ceil(Math.sqrt(objectsData.objects.length));
+                            const row = Math.floor(idx / cols);
+                            const col = idx % cols;
+                            const rows = Math.ceil(objectsData.objects.length / cols);
+                            x = 15 + (col * (70 / cols)) + (35 / cols);
+                            y = 15 + (row * (70 / rows)) + (35 / rows);
+                          }
+
+                          return (
+                            <div
+                              key={obj.id}
+                              className={`absolute flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold shadow-lg ${
+                                obj.skipped
+                                  ? 'bg-red-500 text-white line-through'
+                                  : 'bg-bambu-green text-black'
+                              }`}
+                              style={{
+                                left: `${x}%`,
+                                top: `${y}%`,
+                                transform: 'translate(-50%, -50%)'
+                              }}
+                              title={obj.name}
+                            >
+                              {obj.id}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {/* Object count overlay */}
+                    <div className="absolute bottom-2 right-2 px-2 py-1 bg-white/90 dark:bg-black/80 rounded text-[10px] text-gray-700 dark:text-white shadow-sm">
+                      {objectsData.objects.filter(o => !o.skipped).length} active
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right: Object List with prominent IDs */}
+                <div className="flex-1 min-w-0">
+                  {objectsData.objects.map((obj) => (
+                    <div
+                      key={obj.id}
+                      className={`
+                        flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-bambu-dark-tertiary/50 last:border-0
+                        ${obj.skipped ? 'bg-red-50 dark:bg-red-500/10' : 'hover:bg-gray-50 dark:hover:bg-bambu-dark/50'}
+                      `}
+                    >
+                      {/* Large prominent ID badge */}
+                      <div className={`
+                        w-12 h-12 flex-shrink-0 rounded-lg flex flex-col items-center justify-center
+                        ${obj.skipped
+                          ? 'bg-red-100 dark:bg-red-500/20 border border-red-300 dark:border-red-500/40'
+                          : 'bg-green-100 dark:bg-bambu-green/20 border border-green-300 dark:border-bambu-green/40'}
+                      `}>
+                        <span className={`text-lg font-mono font-bold ${obj.skipped ? 'text-red-500 dark:text-red-400' : 'text-green-600 dark:text-bambu-green'}`}>
+                          {obj.id}
+                        </span>
+                        <span className={`text-[8px] uppercase tracking-wider ${obj.skipped ? 'text-red-400/60' : 'text-green-500/60 dark:text-bambu-green/60'}`}>
+                          ID
+                        </span>
+                      </div>
+
+                      {/* Object name and status */}
+                      <div className="flex-1 min-w-0">
+                        <span className={`block text-sm truncate ${obj.skipped ? 'text-red-500 dark:text-red-400 line-through' : 'text-gray-900 dark:text-white'}`}>
+                          {obj.name}
+                        </span>
+                        {obj.skipped && (
+                          <span className="text-[10px] text-red-400/60">Will be skipped</span>
+                        )}
+                      </div>
+
+                      {/* Skip button */}
+                      {!obj.skipped ? (
+                        <button
+                          onClick={() => skipObjectsMutation.mutate([obj.id])}
+                          disabled={skipObjectsMutation.isPending || (status?.layer_num ?? 0) <= 1}
+                          className={`px-4 py-2 text-xs font-medium rounded-lg transition-colors ${
+                            (status?.layer_num ?? 0) <= 1
+                              ? 'bg-gray-100 dark:bg-bambu-dark text-gray-400 dark:text-bambu-gray/50 cursor-not-allowed'
+                              : 'bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-500/30 border border-red-300 dark:border-red-500/30'
+                          }`}
+                          title={(status?.layer_num ?? 0) <= 1 ? 'Wait for layer 2+' : 'Skip this object'}
+                        >
+                          Skip
+                        </button>
+                      ) : (
+                        <span className="px-4 py-2 text-xs text-red-500 dark:text-red-400/70 bg-red-100 dark:bg-red-500/10 rounded-lg">
+                          Skipped
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+          </div>
+        </div>
+      )}
+
       {/* HMS Error Modal */}
       {showHMSModal && (
         <HMSErrorModal
@@ -1772,11 +2601,29 @@ function PrinterCard({
         />
       )}
 
+      {/* Link Spool Modal */}
+      {linkSpoolModal && (
+        <LinkSpoolModal
+          isOpen={!!linkSpoolModal}
+          onClose={() => setLinkSpoolModal(null)}
+          trayUuid={linkSpoolModal.trayUuid}
+          trayInfo={linkSpoolModal.trayInfo}
+        />
+      )}
+
       {/* Edit Printer Modal */}
       {showEditModal && (
         <EditPrinterModal
           printer={printer}
           onClose={() => setShowEditModal(false)}
+        />
+      )}
+
+      {/* AMS Slot Menu Backdrop - closes menu when clicking outside */}
+      {amsSlotMenu && (
+        <div
+          className="fixed inset-0 z-40"
+          onClick={() => setAmsSlotMenu(null)}
         />
       )}
     </Card>
@@ -2442,6 +3289,14 @@ export function PrintersPage() {
     staleTime: 60 * 1000, // 1 minute
   });
 
+  // Fetch Spoolman status to enable link spool feature
+  const { data: spoolmanStatus } = useQuery({
+    queryKey: ['spoolman-status'],
+    queryFn: api.getSpoolmanStatus,
+    staleTime: 60 * 1000, // 1 minute
+  });
+  const spoolmanEnabled = spoolmanStatus?.enabled && spoolmanStatus?.connected;
+
   // Create a map of printer_id -> maintenance info for quick lookup
   const maintenanceByPrinter = maintenanceOverview?.reduce(
     (acc, overview) => {
@@ -2716,6 +3571,7 @@ export function PrintersPage() {
                       tempGood: Number(settings.ams_temp_good) || 28,
                       tempFair: Number(settings.ams_temp_fair) || 35,
                     } : undefined}
+                    spoolmanEnabled={spoolmanEnabled}
                   />
                 ))}
               </div>
@@ -2736,6 +3592,7 @@ export function PrintersPage() {
               hideIfDisconnected={hideDisconnected}
               maintenanceInfo={maintenanceByPrinter[printer.id]}
               viewMode={viewMode}
+              spoolmanEnabled={spoolmanEnabled}
               amsThresholds={settings ? {
                 humidityGood: Number(settings.ams_humidity_good) || 40,
                 humidityFair: Number(settings.ams_humidity_fair) || 60,

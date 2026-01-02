@@ -342,6 +342,27 @@ async def _send_print_start_notification(
         logger.warning(f"Notification on_print_start failed: {e}")
 
 
+def _load_objects_from_archive(archive, printer_id: int, logger) -> None:
+    """Extract printable objects from an archive's 3MF file and store in printer state."""
+    try:
+        from backend.app.services.archive import extract_printable_objects_from_3mf
+
+        file_path = app_settings.base_dir / archive.file_path
+        if file_path.exists() and str(file_path).endswith(".3mf"):
+            with open(file_path, "rb") as f:
+                threemf_data = f.read()
+            # Extract with positions for UI overlay
+            printable_objects = extract_printable_objects_from_3mf(threemf_data, include_positions=True)
+            if printable_objects:
+                client = printer_manager.get_client(printer_id)
+                if client:
+                    client.state.printable_objects = printable_objects
+                    client.state.skipped_objects = []
+                    logger.info(f"Loaded {len(printable_objects)} printable objects for printer {printer_id}")
+    except Exception as e:
+        logger.debug(f"Failed to extract printable objects from archive: {e}")
+
+
 async def on_print_start(printer_id: int, data: dict):
     """Handle print start - archive the 3MF file immediately."""
     import logging
@@ -470,6 +491,9 @@ async def on_print_start(printer_id: int, data: dict):
                     archive_data = {"print_time_seconds": archive.print_time_seconds}
                     await _send_print_start_notification(printer_id, data, archive_data, logger)
 
+                # Extract printable objects from the archived 3MF file
+                _load_objects_from_archive(archive, printer_id, logger)
+
             return  # Skip creating a new archive
 
         # Check if there's already a "printing" archive for this printer/file
@@ -508,6 +532,8 @@ async def on_print_start(printer_id: int, data: dict):
             if not notification_sent:
                 archive_data = {"print_time_seconds": existing_archive.print_time_seconds}
                 await _send_print_start_notification(printer_id, data, archive_data, logger)
+            # Extract printable objects from the archived 3MF file
+            _load_objects_from_archive(existing_archive, printer_id, logger)
             return
 
         # Build list of possible 3MF filenames to try
@@ -662,6 +688,24 @@ async def on_print_start(printer_id: int, data: dict):
                     archive_data = {"print_time_seconds": archive.print_time_seconds}
                     await _send_print_start_notification(printer_id, data, archive_data, logger)
                     notification_sent = True
+
+                # Extract printable objects for skip object functionality
+                try:
+                    from backend.app.services.archive import extract_printable_objects_from_3mf
+
+                    with open(temp_path, "rb") as f:
+                        threemf_data = f.read()
+                    # Extract with positions for UI overlay
+                    printable_objects = extract_printable_objects_from_3mf(threemf_data, include_positions=True)
+                    if printable_objects:
+                        # Store objects in printer state
+                        client = printer_manager.get_client(printer_id)
+                        if client:
+                            client.state.printable_objects = printable_objects
+                            client.state.skipped_objects = []  # Reset skipped objects for new print
+                            logger.info(f"Loaded {len(printable_objects)} printable objects for printer {printer_id}")
+                except Exception as e:
+                    logger.debug(f"Failed to extract printable objects: {e}")
         finally:
             if temp_path and temp_path.exists():
                 temp_path.unlink()

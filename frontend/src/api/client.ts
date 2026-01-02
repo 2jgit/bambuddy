@@ -163,6 +163,8 @@ export interface PrinterStatus {
   mc_print_sub_stage: number;
   // Timestamp of last AMS data update (for RFID refresh detection)
   last_ams_update: number;
+  // Number of printable objects in current print (for skip objects feature)
+  printable_objects_count: number;
 }
 
 export interface PrinterCreate {
@@ -221,6 +223,7 @@ export interface Archive {
   cost: number | null;
   photos: string[] | null;
   failure_reason: string | null;
+  quantity: number;
   energy_kwh: number | null;
   energy_cost: number | null;
   created_at: string;
@@ -331,6 +334,7 @@ export interface SimilarArchive {
 // Project types
 export interface ProjectStats {
   total_archives: number;
+  total_items: number;  // Sum of quantities (total items printed)
   completed_prints: number;
   failed_prints: number;
   queued_prints: number;
@@ -401,7 +405,8 @@ export interface ProjectListItem {
   status: string;
   target_count: number | null;
   created_at: string;
-  archive_count: number;
+  archive_count: number;  // Number of print jobs
+  total_items: number;  // Sum of quantities (total items printed)
   queue_count: number;
   progress_percent: number | null;
   archives: ArchivePreview[];
@@ -1117,10 +1122,28 @@ export interface SpoolmanStatus {
   url: string | null;
 }
 
+export interface SkippedSpool {
+  location: string;
+  reason: string;
+  filament_type: string | null;
+  color: string | null;
+}
+
 export interface SpoolmanSyncResult {
   success: boolean;
   synced_count: number;
+  skipped_count: number;
+  skipped: SkippedSpool[];
   errors: string[];
+}
+
+export interface UnlinkedSpool {
+  id: number;
+  filament_name: string | null;
+  filament_material: string | null;
+  filament_color_hex: string | null;
+  remaining_weight: number | null;
+  location: string | null;
 }
 
 // Update types
@@ -1275,6 +1298,45 @@ export const api = {
       method: 'POST',
     }),
 
+  // Print Control
+  stopPrint: (printerId: number) =>
+    request<{ success: boolean; message: string }>(`/printers/${printerId}/print/stop`, {
+      method: 'POST',
+    }),
+  pausePrint: (printerId: number) =>
+    request<{ success: boolean; message: string }>(`/printers/${printerId}/print/pause`, {
+      method: 'POST',
+    }),
+  resumePrint: (printerId: number) =>
+    request<{ success: boolean; message: string }>(`/printers/${printerId}/print/resume`, {
+      method: 'POST',
+    }),
+
+  // Skip Objects
+  getPrintableObjects: (printerId: number) =>
+    request<{
+      objects: Array<{ id: number; name: string; x: number | null; y: number | null; skipped: boolean }>;
+      total: number;
+      skipped_count: number;
+      is_printing: boolean;
+    }>(`/printers/${printerId}/print/objects`),
+
+  skipObjects: (printerId: number, objectIds: number[]) =>
+    request<{ success: boolean; message: string; skipped_objects: number[] }>(
+      `/printers/${printerId}/print/skip-objects`,
+      {
+        method: 'POST',
+        body: JSON.stringify(objectIds),
+      }
+    ),
+
+  // AMS Control
+  refreshAmsSlot: (printerId: number, amsId: number, slotId: number) =>
+    request<{ success: boolean; message: string }>(
+      `/printers/${printerId}/ams/${amsId}/slot/${slotId}/refresh`,
+      { method: 'POST' }
+    ),
+
   // MQTT Debug Logging
   enableMQTTLogging: (printerId: number) =>
     request<{ logging_enabled: boolean }>(`/printers/${printerId}/logging/enable`, {
@@ -1348,6 +1410,7 @@ export const api = {
     cost?: number;
     failure_reason?: string | null;
     status?: string;
+    quantity?: number;
   }) =>
     request<Archive>(`/archives/${id}`, {
       method: 'PATCH',
@@ -1996,6 +2059,13 @@ export const api = {
     request<{ spools: unknown[] }>('/spoolman/spools'),
   getSpoolmanFilaments: () =>
     request<{ filaments: unknown[] }>('/spoolman/filaments'),
+  getUnlinkedSpools: () =>
+    request<UnlinkedSpool[]>('/spoolman/spools/unlinked'),
+  linkSpool: (spoolId: number, trayUuid: string) =>
+    request<{ success: boolean; message: string }>(`/spoolman/spools/${spoolId}/link`, {
+      method: 'POST',
+      body: JSON.stringify({ tray_uuid: trayUuid }),
+    }),
 
   // Updates
   getVersion: () => request<VersionInfo>('/updates/version'),

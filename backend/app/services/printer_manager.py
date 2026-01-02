@@ -475,9 +475,12 @@ def printer_state_to_dict(state: PrinterState, printer_id: int | None = None) ->
         # Calibration stage tracking
         "stg_cur": state.stg_cur,
         "stg_cur_name": get_derived_status_name(state),
+        # Printable objects count for skip objects feature
+        "printable_objects_count": len(state.printable_objects),
     }
     # Add cover URL if there's an active print and printer_id is provided
-    if printer_id and state.state == "RUNNING" and state.gcode_file:
+    # Include PAUSE/PAUSED states so skip objects modal can show cover
+    if printer_id and state.state in ("RUNNING", "PAUSE", "PAUSED") and state.gcode_file:
         result["cover_url"] = f"/api/v1/printers/{printer_id}/cover"
     else:
         result["cover_url"] = None

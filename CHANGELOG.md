@@ -2,6 +2,74 @@
 
 All notable changes to Bambuddy will be documented in this file.
 
+## [0.1.6b5] - 2026-01-02
+
+### Added
+- **Pre-built Docker images** - Ready-to-use container images on GitHub Container Registry:
+  - Pull directly: `docker pull ghcr.io/maziggy/bambuddy:latest`
+  - Multi-architecture support: `linux/amd64` and `linux/arm64` (Raspberry Pi 4/5)
+  - No build required - just `docker compose up -d`
+  - Automatic architecture detection - Docker pulls the right image for your system
+- **Spoolman Link Spool feature** - Manually link existing Spoolman spools to AMS trays:
+  - Hover over any AMS slot to see "Link to Spoolman" button (when Spoolman enabled)
+  - Select from list of unlinked Spoolman spools
+  - Automatically sets the `extra.tag` field in Spoolman for proper sync
+  - Useful for connecting existing Spoolman inventory to physical spools
+- **Spool UUID display** - View and copy Bambu Lab spool UUID in AMS hover card:
+  - Shows first 8 chars of UUID with copy button
+  - Full UUID copied to clipboard (with fallback for HTTP contexts)
+  - Only visible when Spoolman integration is enabled
+- **Spoolman sync feedback** - Improved sync result display:
+  - Shows count of successfully synced spools
+  - Lists skipped spools with reasons (e.g., "Non-Bambu Lab spool")
+  - Expandable list when more than 5 spools skipped
+  - Color swatches for easy identification
+- **Printer control buttons** - Stop and Pause/Resume buttons on printer cards when printing:
+  - Stop button cancels the current print job
+  - Pause/Resume toggle for pausing and resuming prints
+  - Confirmation modals for all actions to prevent accidental clicks
+  - Toast notifications for action feedback
+- **Skip objects** - Skip individual objects during a print:
+  - Skip button in print status section (top right) when printing with 2+ objects
+  - Modal shows preview image with object ID markers overlaid
+  - Large ID badges to easily match with printer display
+  - Click to skip any object - it will not be printed
+  - Skipped objects shown with strikethrough styling and red badge on button
+  - Skip only available after layer 1 (printer limitation) with warning message
+  - Objects automatically loaded when print starts from 3MF metadata
+  - Parses skipped objects from printer MQTT for state persistence
+  - Light and dark theme support
+  - Close with ESC key or click outside
+  - Requires "Exclude Objects" option enabled in slicer
+- **AMS slot RFID re-read** - Re-read RFID data for individual AMS slots:
+  - Menu button (⋮) appears on hover over AMS slots
+  - "Re-read RFID" option triggers filament info refresh
+  - Loading indicator shows while re-read is in progress
+  - Automatically tracks printer status to clear indicator when complete
+  - Menu hidden when printer is busy (printing)
+- **Print quantity tracking** - Track number of items per print job for project progress:
+  - Set "Items Printed" quantity when editing archived prints
+  - Project stats now show total items vs print jobs
+  - Progress bar tracks items toward target count
+  - Useful for batch printing (e.g., 10 copies in one print = 10 items)
+  - Default quantity of 1 for backwards compatibility
+
+### Changed
+- **Temperature cards layout** - Refactored printer card layout with slimmer temperature displays to make room for control buttons
+- **Cover image availability** - Print cover image now shown in PAUSE/PAUSED states (not just RUNNING) for skip objects modal
+- **Spoolman info banner** - Updated settings UI with clearer sync documentation
+
+### Fixed
+- **Spoolman spool creation** - Fixed 400 Bad Request error when creating new spools:
+  - Spoolman `extra` field values must be valid JSON
+  - Now properly JSON-encodes the `tag` value
+  - Affects both auto-sync and manual link operations
+
+### Tests
+- Added integration tests for printer control endpoints (stop, pause, resume)
+- Added integration tests for AMS slot refresh endpoint
+- Added integration tests for skip objects endpoints (get objects, skip objects, objects with positions)
+
 ## [0.1.6b4] - 2026-01-01
 
 ### Added

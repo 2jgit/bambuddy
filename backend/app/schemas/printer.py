@@ -151,3 +151,5 @@ class PrinterStatus(BaseModel):
     mc_print_sub_stage: int = 0
     # Timestamp of last AMS data update (for RFID refresh detection)
     last_ams_update: float = 0.0
+    # Number of printable objects in current print (for skip objects feature)
+    printable_objects_count: int = 0

@@ -291,3 +291,423 @@ class TestPrinterDataIntegrity:
             assert response.status_code == 200
             assert response.json()["status"] == "refresh_requested"
             mock_pm.request_status_update.assert_called_once_with(printer.id)
+
+
+class TestPrintControlAPI:
+    """Integration tests for print control endpoints (stop, pause, resume)."""
+
+    # ========================================================================
+    # Stop print endpoint
+    # ========================================================================
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_stop_print_not_found(self, async_client: AsyncClient):
+        """Verify 404 for non-existent printer."""
+        response = await async_client.post("/api/v1/printers/99999/print/stop")
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_stop_print_not_connected(self, async_client: AsyncClient, printer_factory):
+        """Verify error when printer is not connected."""
+        printer = await printer_factory(name="Disconnected Printer")
+
+        with patch("backend.app.api.routes.printers.printer_manager") as mock_pm:
+            mock_pm.get_client.return_value = None
+
+            response = await async_client.post(f"/api/v1/printers/{printer.id}/print/stop")
+
+            assert response.status_code == 400
+            assert "not connected" in response.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_stop_print_success(self, async_client: AsyncClient, printer_factory):
+        """Verify successful stop print request."""
+        printer = await printer_factory(name="Printing Printer")
+
+        mock_client = MagicMock()
+        mock_client.stop_print.return_value = True
+
+        with patch("backend.app.api.routes.printers.printer_manager") as mock_pm:
+            mock_pm.get_client.return_value = mock_client
+
+            response = await async_client.post(f"/api/v1/printers/{printer.id}/print/stop")
+
+            assert response.status_code == 200
+            assert response.json()["success"] is True
+            mock_client.stop_print.assert_called_once()
+
+    # ========================================================================
+    # Pause print endpoint
+    # ========================================================================
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_pause_print_not_found(self, async_client: AsyncClient):
+        """Verify 404 for non-existent printer."""
+        response = await async_client.post("/api/v1/printers/99999/print/pause")
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_pause_print_not_connected(self, async_client: AsyncClient, printer_factory):
+        """Verify error when printer is not connected."""
+        printer = await printer_factory(name="Disconnected Printer")
+
+        with patch("backend.app.api.routes.printers.printer_manager") as mock_pm:
+            mock_pm.get_client.return_value = None
+
+            response = await async_client.post(f"/api/v1/printers/{printer.id}/print/pause")
+
+            assert response.status_code == 400
+            assert "not connected" in response.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_pause_print_success(self, async_client: AsyncClient, printer_factory):
+        """Verify successful pause print request."""
+        printer = await printer_factory(name="Printing Printer")
+
+        mock_client = MagicMock()
+        mock_client.pause_print.return_value = True
+
+        with patch("backend.app.api.routes.printers.printer_manager") as mock_pm:
+            mock_pm.get_client.return_value = mock_client
+
+            response = await async_client.post(f"/api/v1/printers/{printer.id}/print/pause")
+
+            assert response.status_code == 200
+            assert response.json()["success"] is True
+            mock_client.pause_print.assert_called_once()
+
+    # ========================================================================
+    # Resume print endpoint
+    # ========================================================================
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_resume_print_not_found(self, async_client: AsyncClient):
+        """Verify 404 for non-existent printer."""
+        response = await async_client.post("/api/v1/printers/99999/print/resume")
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_resume_print_not_connected(self, async_client: AsyncClient, printer_factory):
+        """Verify error when printer is not connected."""
+        printer = await printer_factory(name="Disconnected Printer")
+
+        with patch("backend.app.api.routes.printers.printer_manager") as mock_pm:
+            mock_pm.get_client.return_value = None
+
+            response = await async_client.post(f"/api/v1/printers/{printer.id}/print/resume")
+
+            assert response.status_code == 400
+            assert "not connected" in response.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_resume_print_success(self, async_client: AsyncClient, printer_factory):
+        """Verify successful resume print request."""
+        printer = await printer_factory(name="Paused Printer")
+
+        mock_client = MagicMock()
+        mock_client.resume_print.return_value = True
+
+        with patch("backend.app.api.routes.printers.printer_manager") as mock_pm:
+            mock_pm.get_client.return_value = mock_client
+
+            response = await async_client.post(f"/api/v1/printers/{printer.id}/print/resume")
+
+            assert response.status_code == 200
+            assert response.json()["success"] is True
+            mock_client.resume_print.assert_called_once()
+
+
+class TestAMSRefreshAPI:
+    """Integration tests for AMS slot refresh endpoint."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_ams_refresh_not_found(self, async_client: AsyncClient):
+        """Verify 404 for non-existent printer."""
+        response = await async_client.post("/api/v1/printers/99999/ams/0/slot/0/refresh")
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_ams_refresh_not_connected(self, async_client: AsyncClient, printer_factory):
+        """Verify error when printer is not connected."""
+        printer = await printer_factory(name="Disconnected Printer")
+
+        with patch("backend.app.api.routes.printers.printer_manager") as mock_pm:
+            mock_pm.get_client.return_value = None
+
+            response = await async_client.post(f"/api/v1/printers/{printer.id}/ams/0/slot/0/refresh")
+
+            assert response.status_code == 400
+            assert "not connected" in response.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_ams_refresh_success(self, async_client: AsyncClient, printer_factory):
+        """Verify successful AMS refresh request."""
+        printer = await printer_factory(name="Printer with AMS")
+
+        mock_client = MagicMock()
+        mock_client.ams_refresh_tray.return_value = (True, "Refreshing AMS 0 tray 1")
+
+        with patch("backend.app.api.routes.printers.printer_manager") as mock_pm:
+            mock_pm.get_client.return_value = mock_client
+
+            response = await async_client.post(f"/api/v1/printers/{printer.id}/ams/0/slot/1/refresh")
+
+            assert response.status_code == 200
+            result = response.json()
+            assert result["success"] is True
+            mock_client.ams_refresh_tray.assert_called_once_with(0, 1)
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_ams_refresh_filament_loaded(self, async_client: AsyncClient, printer_factory):
+        """Verify error when filament is loaded (can't refresh while loaded)."""
+        printer = await printer_factory(name="Printer with AMS")
+
+        mock_client = MagicMock()
+        mock_client.ams_refresh_tray.return_value = (False, "Please unload filament first")
+
+        with patch("backend.app.api.routes.printers.printer_manager") as mock_pm:
+            mock_pm.get_client.return_value = mock_client
+
+            response = await async_client.post(f"/api/v1/printers/{printer.id}/ams/0/slot/0/refresh")
+
+            assert response.status_code == 400
+            assert "unload" in response.json()["detail"].lower()
+
+
+class TestSkipObjectsAPI:
+    """Integration tests for skip objects endpoints."""
+
+    # ========================================================================
+    # Get printable objects endpoint
+    # ========================================================================
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_get_objects_not_found(self, async_client: AsyncClient):
+        """Verify 404 for non-existent printer."""
+        response = await async_client.get("/api/v1/printers/99999/print/objects")
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_get_objects_not_connected(self, async_client: AsyncClient, printer_factory):
+        """Verify error when printer is not connected."""
+        printer = await printer_factory(name="Disconnected Printer")
+
+        with patch("backend.app.api.routes.printers.printer_manager") as mock_pm:
+            mock_pm.get_client.return_value = None
+
+            response = await async_client.get(f"/api/v1/printers/{printer.id}/print/objects")
+
+            assert response.status_code == 400
+            assert "not connected" in response.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_get_objects_empty(self, async_client: AsyncClient, printer_factory):
+        """Verify empty objects list when no print is active."""
+        printer = await printer_factory(name="Idle Printer")
+
+        mock_client = MagicMock()
+        mock_client.state.printable_objects = {}
+        mock_client.state.skipped_objects = []
+        mock_client.state.state = "IDLE"
+
+        with patch("backend.app.api.routes.printers.printer_manager") as mock_pm:
+            mock_pm.get_client.return_value = mock_client
+
+            response = await async_client.get(f"/api/v1/printers/{printer.id}/print/objects")
+
+            assert response.status_code == 200
+            result = response.json()
+            assert result["objects"] == []
+            assert result["total"] == 0
+            assert result["skipped_count"] == 0
+            assert result["is_printing"] is False
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_get_objects_with_data(self, async_client: AsyncClient, printer_factory):
+        """Verify objects list when print is active."""
+        printer = await printer_factory(name="Printing Printer")
+
+        mock_client = MagicMock()
+        mock_client.state.printable_objects = {100: "Part A", 200: "Part B", 300: "Part C"}
+        mock_client.state.skipped_objects = [200]
+        mock_client.state.state = "RUNNING"
+
+        with patch("backend.app.api.routes.printers.printer_manager") as mock_pm:
+            mock_pm.get_client.return_value = mock_client
+
+            response = await async_client.get(f"/api/v1/printers/{printer.id}/print/objects")
+
+            assert response.status_code == 200
+            result = response.json()
+            assert result["total"] == 3
+            assert result["skipped_count"] == 1
+            assert result["is_printing"] is True
+
+            # Check objects have correct structure
+            objects_by_id = {obj["id"]: obj for obj in result["objects"]}
+            assert objects_by_id[100]["name"] == "Part A"
+            assert objects_by_id[100]["skipped"] is False
+            assert objects_by_id[200]["name"] == "Part B"
+            assert objects_by_id[200]["skipped"] is True
+            assert objects_by_id[300]["name"] == "Part C"
+            assert objects_by_id[300]["skipped"] is False
+
+    # ========================================================================
+    # Skip objects endpoint
+    # ========================================================================
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_get_objects_with_positions(self, async_client: AsyncClient, printer_factory):
+        """Verify objects list includes position data when available."""
+        printer = await printer_factory(name="Printing Printer")
+
+        # New format with position data
+        mock_client = MagicMock()
+        mock_client.state.printable_objects = {
+            100: {"name": "Part A", "x": 50.0, "y": 100.0},
+            200: {"name": "Part B", "x": 150.0, "y": 100.0},
+        }
+        mock_client.state.skipped_objects = []
+        mock_client.state.state = "RUNNING"
+
+        with patch("backend.app.api.routes.printers.printer_manager") as mock_pm:
+            mock_pm.get_client.return_value = mock_client
+
+            response = await async_client.get(f"/api/v1/printers/{printer.id}/print/objects")
+
+            assert response.status_code == 200
+            result = response.json()
+            assert result["total"] == 2
+
+            # Check objects have position data
+            objects_by_id = {obj["id"]: obj for obj in result["objects"]}
+            assert objects_by_id[100]["name"] == "Part A"
+            assert objects_by_id[100]["x"] == 50.0
+            assert objects_by_id[100]["y"] == 100.0
+            assert objects_by_id[200]["name"] == "Part B"
+            assert objects_by_id[200]["x"] == 150.0
+            assert objects_by_id[200]["y"] == 100.0
+
+    # ========================================================================
+    # Skip objects endpoint
+    # ========================================================================
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_skip_objects_not_found(self, async_client: AsyncClient):
+        """Verify 404 for non-existent printer."""
+        response = await async_client.post("/api/v1/printers/99999/print/skip-objects", json=[100])
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_skip_objects_not_connected(self, async_client: AsyncClient, printer_factory):
+        """Verify error when printer is not connected."""
+        printer = await printer_factory(name="Disconnected Printer")
+
+        with patch("backend.app.api.routes.printers.printer_manager") as mock_pm:
+            mock_pm.get_client.return_value = None
+
+            response = await async_client.post(f"/api/v1/printers/{printer.id}/print/skip-objects", json=[100])
+
+            assert response.status_code == 400
+            assert "not connected" in response.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_skip_objects_empty_list(self, async_client: AsyncClient, printer_factory):
+        """Verify error when no object IDs provided."""
+        printer = await printer_factory(name="Printing Printer")
+
+        mock_client = MagicMock()
+        mock_client.state.printable_objects = {100: "Part A"}
+        mock_client.state.skipped_objects = []
+
+        with patch("backend.app.api.routes.printers.printer_manager") as mock_pm:
+            mock_pm.get_client.return_value = mock_client
+
+            response = await async_client.post(f"/api/v1/printers/{printer.id}/print/skip-objects", json=[])
+
+            assert response.status_code == 400
+            assert "no object" in response.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_skip_objects_invalid_id(self, async_client: AsyncClient, printer_factory):
+        """Verify error when object ID doesn't exist."""
+        printer = await printer_factory(name="Printing Printer")
+
+        mock_client = MagicMock()
+        mock_client.state.printable_objects = {100: "Part A"}
+        mock_client.state.skipped_objects = []
+
+        with patch("backend.app.api.routes.printers.printer_manager") as mock_pm:
+            mock_pm.get_client.return_value = mock_client
+
+            response = await async_client.post(f"/api/v1/printers/{printer.id}/print/skip-objects", json=[999])
+
+            assert response.status_code == 400
+            assert "invalid" in response.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_skip_objects_success(self, async_client: AsyncClient, printer_factory):
+        """Verify successful skip objects request."""
+        printer = await printer_factory(name="Printing Printer")
+
+        mock_client = MagicMock()
+        mock_client.state.printable_objects = {100: "Part A", 200: "Part B"}
+        mock_client.state.skipped_objects = []
+        mock_client.skip_objects.return_value = True
+
+        with patch("backend.app.api.routes.printers.printer_manager") as mock_pm:
+            mock_pm.get_client.return_value = mock_client
+
+            response = await async_client.post(f"/api/v1/printers/{printer.id}/print/skip-objects", json=[100])
+
+            assert response.status_code == 200
+            result = response.json()
+            assert result["success"] is True
+            assert 100 in result["skipped_objects"]
+            mock_client.skip_objects.assert_called_once_with([100])
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_skip_objects_multiple(self, async_client: AsyncClient, printer_factory):
+        """Verify skipping multiple objects at once."""
+        printer = await printer_factory(name="Printing Printer")
+
+        mock_client = MagicMock()
+        mock_client.state.printable_objects = {100: "Part A", 200: "Part B", 300: "Part C"}
+        mock_client.state.skipped_objects = []
+        mock_client.skip_objects.return_value = True
+
+        with patch("backend.app.api.routes.printers.printer_manager") as mock_pm:
+            mock_pm.get_client.return_value = mock_client
+
+            response = await async_client.post(f"/api/v1/printers/{printer.id}/print/skip-objects", json=[100, 200])
+
+            assert response.status_code == 200
+            result = response.json()
+            assert result["success"] is True
+            assert 100 in result["skipped_objects"]
+            assert 200 in result["skipped_objects"]
+            mock_client.skip_objects.assert_called_once_with([100, 200])

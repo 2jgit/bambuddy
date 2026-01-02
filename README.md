@@ -52,9 +52,12 @@
 - Re-print to any connected printer with AMS filament preview
 - Archive comparison (side-by-side diff)
 
-### 📊 Monitoring & Stats
+### 📊 Monitoring & Control
 - Real-time printer status via WebSocket
 - Live camera streaming (MJPEG) & snapshots
+- Printer control (stop, pause, resume)
+- Skip objects during print
+- AMS slot RFID re-read
 - HMS error monitoring with history
 - Print success rates & trends
 - Filament usage tracking
@@ -72,6 +75,7 @@
 ### 📁 Projects
 - Group related prints (e.g., "Voron Build")
 - Track progress with target counts
+- Quantity tracking for batch prints
 - Color-coded project badges
 - Assign archives via context menu
 
@@ -233,13 +237,23 @@
 
 #### Docker (Recommended)
 
+**Option A: Pre-built image (fastest)**
 ```bash
-git clone https://github.com/maziggy/bambuddy.git
-cd bambuddy
+mkdir bambuddy && cd bambuddy
+curl -O https://raw.githubusercontent.com/maziggy/bambuddy/main/docker-compose.yml
 docker compose up -d
 ```
 
+**Option B: Build from source**
+```bash
+git clone https://github.com/maziggy/bambuddy.git
+cd bambuddy
+docker compose up -d --build
+```
+
 Open **http://localhost:8000** in your browser.
+
+> **Multi-architecture support:** Pre-built images are available for `linux/amd64` and `linux/arm64` (Raspberry Pi 4/5).
 
 <details>
 <summary><strong>Docker Configuration & Commands</strong></summary>
@@ -263,6 +277,10 @@ Open **http://localhost:8000** in your browser.
 **Updating:**
 
 ```bash
+# Pre-built image: just pull the latest
+docker compose pull && docker compose up -d
+
+# From source: rebuild after pulling changes
 cd bambuddy && git pull && docker compose up -d --build
 ```
 

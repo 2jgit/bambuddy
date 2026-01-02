@@ -146,6 +146,10 @@ class PrinterState:
     ams_extruder_map: dict = field(default_factory=dict)
     # Timestamp of last AMS data update (for RFID refresh detection)
     last_ams_update: float = 0.0
+    # Printable objects for skip object functionality: {identify_id: object_name}
+    printable_objects: dict = field(default_factory=dict)
+    # Objects that have been skipped during the current print
+    skipped_objects: list = field(default_factory=list)
 
 
 # Stage name mapping from BambuStudio DeviceManager.cpp
@@ -1415,6 +1419,17 @@ class BambuMQTTClient:
                 logger.info(f"[{self.serial_number}] speed_level changed: {self.state.speed_level} -> {new_speed}")
             self.state.speed_level = new_speed
 
+        # Parse skipped objects from printer status (s_obj field)
+        # This allows us to restore skipped objects state after reconnection
+        if "s_obj" in data:
+            s_obj = data["s_obj"]
+            if isinstance(s_obj, list):
+                # Update skipped objects from printer's list
+                new_skipped = [int(oid) for oid in s_obj if isinstance(oid, (int, str))]
+                if new_skipped != self.state.skipped_objects:
+                    logger.info(f"[{self.serial_number}] skipped_objects updated from printer: {new_skipped}")
+                    self.state.skipped_objects = new_skipped
+
         # Parse chamber light status from lights_report
         if "lights_report" in data:
             lights = data["lights_report"]
@@ -2383,6 +2398,51 @@ class BambuMQTTClient:
         command = {"print": {"command": "resume", "sequence_id": "0"}}
         self._client.publish(self.topic_publish, json.dumps(command), qos=1)
         logger.info(f"[{self.serial_number}] Sent resume print command")
+        return True
+
+    def skip_objects(self, object_ids: list[int]) -> bool:
+        """Skip specific objects during a print.
+
+        This command tells the printer to skip printing the specified objects.
+        The object IDs come from the slice_info.config file in the 3MF.
+
+        Args:
+            object_ids: List of identify_id values from slice_info.config
+
+        Returns:
+            True if command was sent, False otherwise
+        """
+        if not self._client or not self.state.connected:
+            logger.warning(f"[{self.serial_number}] Cannot skip objects: not connected")
+            return False
+
+        if self.state.state != "RUNNING" and self.state.state != "PAUSE":
+            logger.warning(
+                f"[{self.serial_number}] Cannot skip objects: printer not printing (state={self.state.state})"
+            )
+            return False
+
+        if not object_ids:
+            logger.warning(f"[{self.serial_number}] Cannot skip objects: no object IDs provided")
+            return False
+
+        # Validate all IDs are integers
+        try:
+            obj_list = [int(oid) for oid in object_ids]
+        except (ValueError, TypeError) as e:
+            logger.warning(f"[{self.serial_number}] Invalid object IDs: {e}")
+            return False
+
+        self._sequence_id += 1
+        command = {"print": {"sequence_id": str(self._sequence_id), "command": "skip_objects", "obj_list": obj_list}}
+        self._client.publish(self.topic_publish, json.dumps(command), qos=1)
+        logger.info(f"[{self.serial_number}] Sent skip_objects command: {obj_list}")
+
+        # Track skipped objects in state
+        for oid in obj_list:
+            if oid not in self.state.skipped_objects:
+                self.state.skipped_objects.append(oid)
+
         return True
 
     def send_gcode(self, gcode: str) -> bool:
